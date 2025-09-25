@@ -1,0 +1,138 @@
+using System.Collections;
+using System.Collections.Concurrent;
+
+namespace StreamIt;
+
+public class StreamItStorage
+{
+    private readonly ConnectionStore connections = new ConnectionStore();
+
+    private HubGroupList Groups { get; set; } = new();
+
+
+    internal Task AddConnection(StreamItConnectionContext context)
+    {
+        connections.TryAdd(context.ClientId, context);
+        return Task.CompletedTask;
+    }
+
+    internal Task RemoveConnection(StreamItConnectionContext connectionContext)
+    {
+        connections.TryRemove(connectionContext.ClientId, out _);
+        return Task.CompletedTask;
+    }
+    
+    internal Task AddToGroup(string groupName, StreamItConnectionContext context)
+    {
+        if (!connections.TryGetValue(context.ClientId, out var connection))
+            return Task.CompletedTask;
+        lock (connection.Groups)
+        {
+            Groups.Add(connection, groupName);
+        }
+
+        return Task.CompletedTask;
+    }
+
+
+    internal Task RemoveFromGroup(string groupName, StreamItConnectionContext context)
+    {
+        if (!connections.TryGetValue(context.ClientId, out var connection))
+            return Task.CompletedTask;
+        lock (connection.Groups)
+        {
+            Groups.Remove(context.ClientId, groupName);
+        }
+        return Task.CompletedTask;
+    }
+    
+    
+}
+
+internal sealed class HubGroupList : IReadOnlyCollection<ConcurrentDictionary<Guid, StreamItConnectionContext>>
+{
+    private readonly ConcurrentDictionary<string, GroupConnectionList> _groups =
+        new ConcurrentDictionary<string, GroupConnectionList>(StringComparer.Ordinal);
+
+    private static readonly GroupConnectionList EmptyGroupConnectionList = new GroupConnectionList();
+
+    public ConcurrentDictionary<Guid, StreamItConnectionContext>? this[string groupName]
+    {
+        get
+        {
+            _groups.TryGetValue(groupName, out var group);
+            return group;
+        }
+    }
+
+    public void Add(StreamItConnectionContext connection, string groupName)
+    {
+        CreateOrUpdateGroupWithConnection(groupName, connection);
+    }
+
+    public void Remove(Guid connectionId, string groupName)
+    {
+        if (_groups.TryGetValue(groupName, out var connections))
+        {
+            if (connections.TryRemove(connectionId, out _) && connections.IsEmpty)
+            {
+                // If group is empty after connection remove, don't need empty group in dictionary.
+                // Why this way? Because ICollection.Remove implementation of dictionary checks for key and value. When we remove empty group,
+                // it checks if no connection added from another thread.
+                var groupToRemove = new KeyValuePair<string, GroupConnectionList>(groupName, EmptyGroupConnectionList);
+                ((ICollection<KeyValuePair<string, GroupConnectionList>>)(_groups)).Remove(groupToRemove);
+            }
+        }
+    }
+
+    public int Count => _groups.Count;
+
+    public IEnumerator<ConcurrentDictionary<Guid, StreamItConnectionContext>> GetEnumerator()
+    {
+        return _groups.Values.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+
+    private void CreateOrUpdateGroupWithConnection(string groupName, StreamItConnectionContext connection)
+    {
+        _groups.AddOrUpdate(groupName, _ => AddConnectionToGroup(connection, new GroupConnectionList()),
+            (_, oldCollection) =>
+            {
+                AddConnectionToGroup(connection, oldCollection);
+                return oldCollection;
+            });
+    }
+
+    private static GroupConnectionList AddConnectionToGroup(
+        StreamItConnectionContext connection, GroupConnectionList group)
+    {
+        group.AddOrUpdate(connection.ClientId, connection, (_, __) => connection);
+        return group;
+    }
+}
+
+internal sealed class GroupConnectionList : ConcurrentDictionary<Guid, StreamItConnectionContext>
+{
+    public override bool Equals(object? obj)
+    {
+        if (obj is ConcurrentDictionary<Guid, StreamItConnectionContext> list)
+        {
+            return list.Count == Count;
+        }
+
+        return false;
+    }
+
+    public override int GetHashCode()
+    {
+        return base.GetHashCode();
+    }
+}
+
+internal sealed class ConnectionStore : ConcurrentDictionary<Guid, StreamItConnectionContext>
+{
+}
