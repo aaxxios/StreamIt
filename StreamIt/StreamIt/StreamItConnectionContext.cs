@@ -11,6 +11,8 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
 
     private bool Finalized { get; set; }
 
+    public Dictionary<string, object> Properties { get; } = [];
+
 
     /// <summary>
     /// gives client the opportunity to set client id before the connection is finalized
