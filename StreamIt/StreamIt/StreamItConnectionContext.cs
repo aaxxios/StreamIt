@@ -11,6 +11,12 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
 
     private bool Finalized { get; set; }
 
+
+    /// <summary>
+    /// gives client opportunity to set client id before the connection is finalized
+    /// </summary>
+    /// <param name="guid"></param>
+    /// <exception cref="InvalidOperationException"></exception>
     public void SetClient(Guid guid)
     {
         if (Finalized)
@@ -130,16 +136,12 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
             throw new MessageTooLargeException(options.MaxMessageSize, read);
         if (reply.MessageType == WebSocketMessageType.Close)
             Aborted = true;
-        return new StreamItReceivedMessage()
-        {
-            Result = reply,
-            Read = read
-        };
+        return new StreamItReceivedMessage(reply, read);
     }
 }
 
-public class StreamItReceivedMessage
+public class StreamItReceivedMessage(WebSocketReceiveResult result, int read)
 {
-    internal WebSocketReceiveResult Result { get; set; }
-    internal int Read { get; set; }
+    internal readonly WebSocketReceiveResult Result = result;
+    internal readonly int Read = read;
 }
