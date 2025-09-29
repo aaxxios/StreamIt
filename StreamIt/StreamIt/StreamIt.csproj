@@ -9,8 +9,8 @@
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>StreamIt</PackageId>
         <Authors>aaxxios</Authors>
-        <Version>1.0.4</Version>
-        <PackageReleaseNotes>refactor underlying socket connection</PackageReleaseNotes>
+        <Version>1.0.8</Version>
+        <PackageReleaseNotes>fix lock contentions</PackageReleaseNotes>
     </PropertyGroup>
 
     <ItemGroup>
