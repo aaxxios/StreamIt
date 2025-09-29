@@ -45,13 +45,12 @@ public sealed class StreamItRequestHandler : IDisposable
             try
             {
                 using var recTokenSource = new CancellationTokenSource(options.Value.ReadMessageTimeout);
-                logger.LogInformation("checking connection: {C}", ConnectionContext.ClientId);
                 var result = await ConnectionContext.ReceiveMessageWithResult(buffer, recTokenSource.Token)
                     .ConfigureAwait(false);
-                logger.LogInformation("receive message: {C}", result);
+                logger.LogDebug("receive message from client: {C}", result);
                 if (result.Result.MessageType == WebSocketMessageType.Close)
                 {
-                    logger.LogInformation("connection closed or timed out");
+                    logger.LogDebug("connection closed or timed out: {C}", ConnectionContext.ClientId);
                     await eventHandler.OnDisconnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
                     ConnectionContext.Abort();
                     break;
@@ -60,7 +59,7 @@ public sealed class StreamItRequestHandler : IDisposable
                 await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
                 if (ConnectionContext.Aborted)
                 {
-                    logger.LogInformation("connection aborted");
+                    logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
                     break;
                 }
             }
@@ -90,7 +89,7 @@ public sealed class StreamItRequestHandler : IDisposable
             }
 
             await Task.Yield();
-            await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(options.Value.KeepAliveInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 
