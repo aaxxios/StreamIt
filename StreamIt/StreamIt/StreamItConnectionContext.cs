@@ -13,7 +13,7 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
 
 
     /// <summary>
-    /// gives client opportunity to set client id before the connection is finalized
+    /// gives client the opportunity to set client id before the connection is finalized
     /// </summary>
     /// <param name="guid"></param>
     /// <exception cref="InvalidOperationException"></exception>
@@ -38,8 +38,8 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
     {
         if (Aborted)
             return;
-        await writeLock.WaitAsync(cancellationToken);
-        await socket.SendAsync(message, WebSocketMessageType.Binary, true, CancellationToken.None);
+        await writeLock.WaitAsync(CancellationToken.None);
+        await socket.SendAsync(message, WebSocketMessageType.Binary, true, cancellationToken);
         writeLock.Release();
     }
 
@@ -60,21 +60,21 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
     /// reads raw bytes from connection
     /// </summary>
     /// <param name="buffer"></param>
+    /// <param name="cancellationToken"></param>
     /// <returns></returns>
     /// <exception cref="SocketCloseException"></exception>
     /// <exception cref="MessageTooLargeException"></exception>
-    public async Task<int> ReadRawBytes(byte[] buffer)
+    public async Task<int> ReadRawBytesAsync(byte[] buffer, CancellationToken cancellationToken = default)
     {
         if (Aborted)
             throw new SocketCloseException();
-        using var cts = new CancellationTokenSource(options.ReadMessageTimeout);
-        await readLock.WaitAsync(cts.Token);
+        await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
         var read = 0;
         var remaining = options.MaxMessageSize;
         do
         {
-            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cts.Token)
+            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
                 .GetAwaiter()
                 .GetResult();
             read += reply.Count;
@@ -94,12 +94,12 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public async Task<T> ReceiveMessage<T>()
+    public async Task<T> ReceiveMessageAsync<T>(CancellationToken cancellationToken = default)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(options.MaxMessageSize);
         try
         {
-            var read = await ReadRawBytes(buffer);
+            var read = await ReadRawBytesAsync(buffer, cancellationToken);
             return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read))!;
         }
         finally
@@ -109,23 +109,23 @@ public sealed class StreamItConnectionContext(Guid clientId, ClientWebSocket soc
         }
     }
 
-    public Task<int> ReceiveMessage(byte[] buffer)
+    public Task<int> ReceiveMessageAsync(byte[] buffer, CancellationToken cancellationToken = default)
     {
-        return ReadRawBytes(buffer);
+        return ReadRawBytesAsync(buffer, cancellationToken);
     }
 
-    internal async Task<StreamItReceivedMessage> ReceiveMessageWithResult(byte[] buffer)
+    internal async Task<StreamItReceivedMessage> ReceiveMessageWithResult(byte[] buffer,
+        CancellationToken cancellationToken = default)
     {
         if (Aborted)
             throw new SocketCloseException();
-        using var cts = new CancellationTokenSource(options.ReadMessageTimeout);
-        await readLock.WaitAsync(cts.Token);
+        await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
         var read = 0;
         var remaining = options.MaxMessageSize;
         do
         {
-            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cts.Token)
+            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
                 .GetAwaiter()
                 .GetResult();
             read += reply.Count;

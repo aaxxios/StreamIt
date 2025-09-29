@@ -19,7 +19,7 @@ public sealed class StreamItRequestHandler
         this.eventHandler = eventHandler;
     }
 
-    internal async Task HandleConnection(CancellationToken cancellationToken)
+    internal async Task HandleConnection(CancellationToken cancellationToken = default)
     {
         await eventHandler.OnConnected(ConnectionContext).ConfigureAwait(false);
         if (ConnectionContext.Aborted) return;
@@ -35,7 +35,9 @@ public sealed class StreamItRequestHandler
             var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
             try
             {
-                var result = await ConnectionContext.ReceiveMessageWithResult(buffer).ConfigureAwait(false);
+                using var recTokenSource = new CancellationTokenSource(options.Value.ReadMessageTimeout);
+                var result = await ConnectionContext.ReceiveMessageWithResult(buffer, recTokenSource.Token)
+                    .ConfigureAwait(false);
                 if (result.Result.MessageType == WebSocketMessageType.Close)
                 {
                     await eventHandler.OnDisconnected(ConnectionContext);
