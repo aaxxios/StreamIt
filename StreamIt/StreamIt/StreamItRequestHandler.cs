@@ -1,71 +1,66 @@
-using Microsoft.Extensions.DependencyInjection;
+using System.Buffers;
+using System.Net.WebSockets;
+using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public class StreamItRequestHandler(IServiceProvider serviceProvider) : StreamItMarker
+public sealed class StreamItRequestHandler
 {
-    private StreamItConnectionContext? _connectionContext;
-    private StreamItStorage? _streamItStorage;
-    internal async Task HandleConnection(StreamItConnectionContext context, CancellationToken cancellationToken)
+    private readonly StreamItConnectionContext ConnectionContext;
+
+    private readonly IOptions<StreamItOptions> options;
+    private readonly IStreamItEventHandler eventHandler;
+
+    internal StreamItRequestHandler(StreamItConnectionContext context, IOptions<StreamItOptions> options,
+        IStreamItEventHandler eventHandler)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        _connectionContext = context;
-        _streamItStorage = serviceProvider.GetRequiredService<StreamItStorage>();
-        await _streamItStorage.AddConnection(context);
-        if (!await OnConnected())
-        {
-            return;
-        }
+        ConnectionContext = context;
+        this.options = options;
+        this.eventHandler = eventHandler;
+    }
+
+    internal async Task HandleConnection(CancellationToken cancellationToken)
+    {
+        await eventHandler.OnConnected(ConnectionContext).ConfigureAwait(false);
+        if (ConnectionContext.Aborted) return;
+        ConnectionContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task KeepAlive(CancellationToken cancellationToken)
     {
         await Task.Yield();
-        while (!cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested && !ConnectionContext.Aborted)
         {
-        }
-    }
-    
-    protected Task AddToGroup(string groupName)
-    {
-        ArgumentNullException.ThrowIfNull(_connectionContext);
-        ArgumentNullException.ThrowIfNull(_streamItStorage);
-        _streamItStorage.AddToGroup(groupName, _connectionContext);
-        return Task.CompletedTask;
-    }
+            var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
+            try
+            {
+                var result = await ConnectionContext.ReceiveMessageWithResult(buffer).ConfigureAwait(false);
+                if (result.Result.MessageType == WebSocketMessageType.Close)
+                {
+                    await eventHandler.OnDisconnected(ConnectionContext);
+                    ConnectionContext.Abort();
+                    break;
+                }
 
-    protected Task RemoveFromGroup(string groupName)
-    {
-        ArgumentNullException.ThrowIfNull(_connectionContext);
-        ArgumentNullException.ThrowIfNull(_streamItStorage);
-        _streamItStorage.RemoveFromGroup(groupName, _connectionContext);
-        return Task.CompletedTask;
-    }
-
-    protected virtual Task<bool> OnConnected()
-    {
-        return Task.FromResult(true);
-    }
-
-    protected virtual Task OnDisconnected()
-    {
-        ArgumentNullException.ThrowIfNull(_connectionContext);
-        ArgumentNullException.ThrowIfNull(_streamItStorage);
-        _streamItStorage.RemoveConnection(_connectionContext);
-        lock (_connectionContext.Groups)
-        {
-            foreach (var group in _connectionContext.Groups)
-            { 
-                _streamItStorage.RemoveFromGroup(group, _connectionContext);
+                await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read));
+                if (ConnectionContext.Aborted)
+                {
+                    break;
+                }
             }
-        }
+            catch (WebSocketException)
+            {
+                await eventHandler.OnDisconnected(ConnectionContext);
+                throw;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            }
 
-        return Task.CompletedTask;
-    }
-    
-    protected virtual Task OnMessage(byte[] message)
-    {
-        return Task.CompletedTask;
+            await Task.Yield();
+            await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+        }
     }
 }
