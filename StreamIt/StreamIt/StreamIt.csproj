@@ -9,8 +9,8 @@
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>StreamIt</PackageId>
         <Authors>aaxxios</Authors>
-        <Version>1.0.8</Version>
-        <PackageReleaseNotes>fix lock contentions</PackageReleaseNotes>
+        <Version>1.0.10</Version>
+        <PackageReleaseNotes>add serialiser options support</PackageReleaseNotes>
     </PropertyGroup>
 
     <ItemGroup>

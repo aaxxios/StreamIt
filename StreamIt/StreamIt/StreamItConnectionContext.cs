@@ -100,13 +100,14 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public async Task<T> ReceiveMessageAsync<T>(CancellationToken cancellationToken = default)
+    public async Task<T> ReceiveMessageAsync<T>(JsonSerializerOptions? serializerOptions,
+        CancellationToken cancellationToken = default)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(options.MaxMessageSize);
         try
         {
             var read = await ReadRawBytesAsync(buffer, cancellationToken);
-            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read))!;
+            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options: serializerOptions)!;
         }
         finally
         {
