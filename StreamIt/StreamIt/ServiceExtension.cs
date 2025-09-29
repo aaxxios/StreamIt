@@ -1,8 +1,5 @@
-using System.Net.WebSockets;
-using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.WebSockets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -25,7 +22,7 @@ public static class ServiceExtension
                 return Results.BadRequest();
             var socket = await context.WebSockets.AcceptWebSocketAsync();
             using var connectionContext = new StreamItConnectionContext(Guid.NewGuid(), socket, options.Value);
-            var requestHandler = new StreamItRequestHandler(connectionContext, options, eventHandler);
+            using var requestHandler = new StreamItRequestHandler(connectionContext, options, eventHandler, app.Services);
             await requestHandler.HandleConnection(app.Lifetime.ApplicationStopping);
             return Results.Ok();
         });

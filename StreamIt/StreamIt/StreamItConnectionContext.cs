@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace StreamIt;
 
-public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, StreamItOptions options): IDisposable
+public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, StreamItOptions options) : IDisposable
 {
     private Guid _clientId { get; set; } = clientId;
     public Guid ClientId => _clientId;
@@ -141,12 +141,24 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
         return new StreamItReceivedMessage(reply, read);
     }
 
+    private bool disposed;
+
     public void Dispose()
     {
-        writeLock.Dispose();
-        readLock.Dispose();
-        GroupLock.Dispose();
-        socket.Dispose();
+        Dispose(true);
+    }
+
+    public void Dispose(bool disposing)
+    {
+        if (disposed)
+            return;
+        if (disposing)
+        {
+            socket.Dispose();
+            readLock.Dispose();
+            writeLock.Dispose();
+        }
+        disposed = true;
     }
 }
 
