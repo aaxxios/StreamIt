@@ -4,9 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+// ReSharper disable PossiblyMistakenUseOfCancellationToken
+
 namespace StreamIt;
 
-public sealed class StreamItRequestHandler: IDisposable
+public sealed class StreamItRequestHandler : IDisposable
 {
     private readonly StreamItConnectionContext ConnectionContext;
 
@@ -25,35 +27,37 @@ public sealed class StreamItRequestHandler: IDisposable
 
     internal async Task HandleConnection(CancellationToken cancellationToken = default)
     {
-        await eventHandler.OnConnected(ConnectionContext).ConfigureAwait(false);
-        if (ConnectionContext.Aborted) 
-             return;
+        await eventHandler.OnConnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
+        if (ConnectionContext.Aborted)
+            return;
         logger.LogInformation("Finalising connection and keeping alive");
         ConnectionContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task KeepAlive(CancellationToken cancellationToken)
+    private async Task KeepAlive(CancellationToken cancellationToken)
     {
         await Task.Yield();
-        while (!cancellationToken.IsCancellationRequested && !ConnectionContext.Aborted)
+        while (ConnectionContext.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested &&
+               !ConnectionContext.Aborted)
         {
-            logger.LogInformation("checking connection: {C}", ConnectionContext.ClientId);
             var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
             try
             {
                 using var recTokenSource = new CancellationTokenSource(options.Value.ReadMessageTimeout);
+                logger.LogInformation("checking connection: {C}", ConnectionContext.ClientId);
                 var result = await ConnectionContext.ReceiveMessageWithResult(buffer, recTokenSource.Token)
                     .ConfigureAwait(false);
-                logger.LogInformation("receiving message: {C}", result);
-                if (result.Result.MessageType == WebSocketMessageType.Close || recTokenSource.IsCancellationRequested)
+                logger.LogInformation("receive message: {C}", result);
+                if (result.Result.MessageType == WebSocketMessageType.Close)
                 {
                     logger.LogInformation("connection closed or timed out");
-                    await eventHandler.OnDisconnected(ConnectionContext);
+                    await eventHandler.OnDisconnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
                     ConnectionContext.Abort();
                     break;
                 }
-                await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read));
+
+                await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
                 if (ConnectionContext.Aborted)
                 {
                     logger.LogInformation("connection aborted");
@@ -62,7 +66,22 @@ public sealed class StreamItRequestHandler: IDisposable
             }
             catch (WebSocketException)
             {
-                await eventHandler.OnDisconnected(ConnectionContext);
+                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                throw;
+            }
+            catch (SocketCloseException)
+            {
+                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                throw;
+            }
+            catch (TaskCanceledException)
+            {
+                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                throw;
+            }
+            catch (Exception)
+            {
+                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
                 throw;
             }
             finally
@@ -76,6 +95,7 @@ public sealed class StreamItRequestHandler: IDisposable
     }
 
     private bool disposed;
+
     public void Dispose()
     {
         Dispose(true);
@@ -89,6 +109,7 @@ public sealed class StreamItRequestHandler: IDisposable
         {
             ConnectionContext.Dispose();
         }
+
         disposed = true;
     }
 }
