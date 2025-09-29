@@ -9,6 +9,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
     private Guid _clientId { get; set; } = clientId;
     public Guid ClientId => _clientId;
 
+    public WebSocketState State => socket.State;
     private bool Finalized { get; set; }
 
     public Dictionary<string, object> Properties { get; } = [];
@@ -76,6 +77,8 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
         var remaining = options.MaxMessageSize;
         do
         {
+            if (Aborted)
+                throw new SocketCloseException();
             reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
                 .GetAwaiter()
                 .GetResult();
@@ -83,6 +86,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
             remaining -= reply.Count;
         } while (!reply.EndOfMessage && read ! > options.MaxMessageSize);
 
+        readLock.Release();
         if (read == options.MaxMessageSize && !reply.EndOfMessage)
             throw new MessageTooLargeException(options.MaxMessageSize, read);
         if (reply.MessageType != WebSocketMessageType.Close)
@@ -127,17 +131,21 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
         var remaining = options.MaxMessageSize;
         do
         {
+            if (Aborted)
+                throw new SocketCloseException();
             reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
                 .GetAwaiter()
                 .GetResult();
             read += reply.Count;
             remaining -= reply.Count;
-        } while (!reply.EndOfMessage && read ! > options.MaxMessageSize);
+        } while (!reply.EndOfMessage && read ! > options.MaxMessageSize && !Aborted);
 
+        readLock.Release();
         if (read == options.MaxMessageSize && !reply.EndOfMessage)
             throw new MessageTooLargeException(options.MaxMessageSize, read);
         if (reply.MessageType == WebSocketMessageType.Close)
             Aborted = true;
+
         return new StreamItReceivedMessage(reply, read);
     }
 
@@ -158,6 +166,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
             readLock.Dispose();
             writeLock.Dispose();
         }
+
         disposed = true;
     }
 }
