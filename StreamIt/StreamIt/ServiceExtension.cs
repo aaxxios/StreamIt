@@ -23,9 +23,8 @@ public static class ServiceExtension
         {
             if (!context.WebSockets.IsWebSocketRequest)
                 return Results.BadRequest();
-            using var socket = await context.WebSockets.AcceptWebSocketAsync() as ClientWebSocket;
-            ArgumentNullException.ThrowIfNull(socket);
-            var connectionContext = new StreamItConnectionContext(Guid.NewGuid(), socket, options.Value);
+            var socket = await context.WebSockets.AcceptWebSocketAsync();
+            using var connectionContext = new StreamItConnectionContext(Guid.NewGuid(), socket, options.Value);
             var requestHandler = new StreamItRequestHandler(connectionContext, options, eventHandler);
             await requestHandler.HandleConnection(app.Lifetime.ApplicationStopping);
             return Results.Ok();

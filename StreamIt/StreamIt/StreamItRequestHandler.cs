@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public sealed class StreamItRequestHandler
+public sealed class StreamItRequestHandler: IDisposable
 {
     private readonly StreamItConnectionContext ConnectionContext;
 
@@ -64,5 +64,10 @@ public sealed class StreamItRequestHandler
             await Task.Yield();
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    public void Dispose()
+    {
+        ConnectionContext.Dispose();
     }
 }
