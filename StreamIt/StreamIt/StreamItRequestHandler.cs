@@ -30,7 +30,7 @@ public sealed class StreamItRequestHandler : IDisposable
         await eventHandler.OnConnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
         if (ConnectionContext.Aborted)
             return;
-        logger.LogInformation("Finalising connection and keeping alive");
+        logger.LogDebug("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);
         ConnectionContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
     }
@@ -59,7 +59,7 @@ public sealed class StreamItRequestHandler : IDisposable
                 await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
                 if (ConnectionContext.Aborted)
                 {
-                    logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
+                    logger.LogDebug("connection aborted: {C}", ConnectionContext.ClientId);
                     break;
                 }
             }
