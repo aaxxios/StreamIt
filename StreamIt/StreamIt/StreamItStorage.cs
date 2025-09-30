@@ -183,6 +183,26 @@ public sealed class StreamItGroup
         return _connectionList.TryGetValue(context, out value);
     }
 
+    /// <summary>
+    /// get connection by client id
+    /// </summary>
+    /// <param name="clientId"></param>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryGetValue(Guid clientId, out StreamItConnectionContext? value)
+    {
+        return _connectionList.TryGetValue(clientId, out value);
+    }
+
+    public StreamItConnectionContext? this[Guid clientId]
+    {
+        get
+        {
+            _connectionList.TryGetValue(clientId, out var value);
+            return value;
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryRemove(StreamItConnectionContext context, out StreamItConnectionContext? removed)
@@ -280,7 +300,7 @@ public sealed class StreamItConnectionList
     {
         return !_itConnectionContexts.TryGetValue(clientId, out var connection)
             ? Task.CompletedTask
-            : connection!.SendAsync(message, cancellationToken);
+            : connection.SendAsync(message, cancellationToken);
     }
 
     public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
