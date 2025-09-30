@@ -98,6 +98,7 @@ public sealed class StreamItStorage
                 context.Groups.Remove(groupName);
                 group.TryRemove(context, out _);
             }
+
         context.GroupLock.Release();
     }
 }
@@ -224,6 +225,20 @@ public sealed class StreamItGroup
     {
         return _connectionList.SendUserAsync(clientId, message, cancellationToken);
     }
+
+    /// <summary>
+    /// send message to two users in this group
+    /// </summary>
+    /// <param name="clientId1"></param>
+    /// <param name="clientId2"></param>
+    /// <param name="message"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
+        CancellationToken cancellationToken = default)
+    {
+        return _connectionList.SendUsersAsync(clientId1, clientId2, message, cancellationToken);
+    }
 }
 
 public sealed class StreamItConnectionList
@@ -266,5 +281,16 @@ public sealed class StreamItConnectionList
         return !_itConnectionContexts.TryGetValue(clientId, out var connection)
             ? Task.CompletedTask
             : connection!.SendAsync(message, cancellationToken);
+    }
+
+    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
+        CancellationToken cancellationToken = default)
+    {
+        List<Task>? tasks = null;
+        if (_itConnectionContexts.TryGetValue(clientId1, out var connection1))
+            (tasks = []).Add(connection1.SendAsync(message, cancellationToken));
+        if (_itConnectionContexts.TryGetValue(clientId2, out var connection2))
+            (tasks ??= []).Add(connection2.SendAsync(message, cancellationToken));
+        return tasks is null ? Task.CompletedTask : Task.WhenAll(tasks);
     }
 }
