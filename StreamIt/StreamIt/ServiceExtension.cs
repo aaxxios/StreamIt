@@ -7,16 +7,30 @@ namespace StreamIt;
 
 public static class ServiceExtension
 {
+    /// <summary>
+    /// add services required by StreamIt
+    /// </summary>
+    /// <param name="services"></param>
     public static void AddStreamIt(this IServiceCollection services)
     {
         services.AddOptions<StreamItOptions>();
     }
 
-    public static void UseStreamIt(this WebApplication app, string path, IStreamItEventHandler eventHandler)
+    /// <summary>
+    /// usee StreamIt in app
+    /// </summary>
+    /// <param name="app"></param>
+    /// <returns></returns>
+    public static WebApplication UseStreamIt(this WebApplication app)
     {
         app.UseWebSockets();
+        return app;
+    }
+
+    public static RouteHandlerBuilder UseStreamIt(this WebApplication app, string path, IStreamItEventHandler eventHandler)
+    {
         var options = app.Services.GetRequiredService<IOptions<StreamItOptions>>();
-        app.MapGet(path, async (HttpContext context) =>
+       return app.MapGet(path, async (HttpContext context) =>
         {
             if (!context.WebSockets.IsWebSocketRequest)
                 return Results.BadRequest();
