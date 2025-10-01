@@ -1,10 +1,11 @@
 using System.Buffers;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, StreamItOptions options) : IDisposable
+public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, IOptions<StreamItOptions> options) : IDisposable
 {
     private Guid _clientId { get; set; } = clientId;
     public Guid ClientId => _clientId;
@@ -12,6 +13,9 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
     public WebSocketState State => socket.State;
     private bool Finalized { get; set; }
 
+    /// <summary>
+    /// where data can be stored on the context
+    /// </summary>
     public Dictionary<string, object> Properties { get; } = [];
 
 
@@ -74,7 +78,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
         await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
         var read = 0;
-        var remaining = options.MaxMessageSize;
+        var remaining = options.Value.MaxMessageSize;
         do
         {
             if (Aborted)
@@ -84,11 +88,11 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
                 .GetResult();
             read += reply.Count;
             remaining -= reply.Count;
-        } while (!reply.EndOfMessage && read ! > options.MaxMessageSize);
+        } while (!reply.EndOfMessage && read ! > options.Value.MaxMessageSize);
 
         readLock.Release();
-        if (read == options.MaxMessageSize && !reply.EndOfMessage)
-            throw new MessageTooLargeException(options.MaxMessageSize, read);
+        if (read == options.Value.MaxMessageSize && !reply.EndOfMessage)
+            throw new MessageTooLargeException(options.Value.MaxMessageSize, read);
         if (reply.MessageType != WebSocketMessageType.Close)
             return read;
         Aborted = true;
@@ -100,14 +104,13 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public async Task<T> ReceiveMessageAsync<T>(JsonSerializerOptions? serializerOptions,
-        CancellationToken cancellationToken = default)
+    public async Task<T> ReceiveMessageAsync<T>(CancellationToken cancellationToken = default)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(options.MaxMessageSize);
+        var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
         try
         {
             var read = await ReadRawBytesAsync(buffer, cancellationToken);
-            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options: serializerOptions)!;
+            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options: options.Value.SerializerOptions)!;
         }
         finally
         {
@@ -129,7 +132,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
         await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
         var read = 0;
-        var remaining = options.MaxMessageSize;
+        var remaining = options.Value.MaxMessageSize;
         do
         {
             if (Aborted)
@@ -139,11 +142,11 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, S
                 .GetResult();
             read += reply.Count;
             remaining -= reply.Count;
-        } while (!reply.EndOfMessage && read ! > options.MaxMessageSize && !Aborted);
+        } while (!reply.EndOfMessage && read ! > options.Value.MaxMessageSize && !Aborted);
 
         readLock.Release();
-        if (read == options.MaxMessageSize && !reply.EndOfMessage)
-            throw new MessageTooLargeException(options.MaxMessageSize, read);
+        if (read == options.Value.MaxMessageSize && !reply.EndOfMessage)
+            throw new MessageTooLargeException(options.Value.MaxMessageSize, read);
         if (reply.MessageType == WebSocketMessageType.Close)
             Aborted = true;
 
