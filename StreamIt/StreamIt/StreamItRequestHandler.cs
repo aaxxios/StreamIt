@@ -29,9 +29,12 @@ public sealed class StreamItRequestHandler : IDisposable
     {
         await eventHandler.OnConnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
         if (ConnectionContext.Aborted)
-            return;
-        await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-        logger.LogDebug("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);
+        {
+            await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
+            logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
+        }
+       
+        logger.LogInformation("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);
         ConnectionContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
     }
@@ -48,20 +51,32 @@ public sealed class StreamItRequestHandler : IDisposable
                 using var recTokenSource = new CancellationTokenSource(options.Value.ReadMessageTimeout);
                 var result = await ConnectionContext.ReceiveMessageWithResult(buffer, recTokenSource.Token)
                     .ConfigureAwait(false);
-                logger.LogDebug("receive message from client: {C}", result);
+                logger.LogInformation("receive message from client: {C}", result);
                 if (result.Result.MessageType == WebSocketMessageType.Close)
                 {
-                    logger.LogDebug("connection closed or timed out: {C}", ConnectionContext.ClientId);
+                    logger.LogInformation("connection closed or timed out: {C}", ConnectionContext.ClientId);
                     await eventHandler.OnDisconnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
                     await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                     ConnectionContext.Abort();
                     break;
                 }
 
-                await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
+                try
+                {
+                    await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
+                }
+                catch (Exception e)
+                {
+                    logger.LogError(e, "event handler error handling message from client: {C}",
+                        ConnectionContext.ClientId);
+                    await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
+                    ConnectionContext.Abort();
+                    break;
+                }
+
                 if (ConnectionContext.Aborted)
                 {
-                    logger.LogDebug("connection aborted: {C}", ConnectionContext.ClientId);
+                    logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
                     break;
                 }
             }

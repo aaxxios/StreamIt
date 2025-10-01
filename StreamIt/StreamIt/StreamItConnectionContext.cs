@@ -20,7 +20,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
 
 
     /// <summary>
-    /// gives client the opportunity to set client id before the connection is finalized
+    /// call once to reset the client id before the connection is finalized
     /// </summary>
     /// <param name="guid"></param>
     /// <exception cref="InvalidOperationException"></exception>
@@ -50,7 +50,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
         writeLock.Release();
     }
 
-    internal Task CloseAsync(CancellationToken cancellationToken = default)
+    public Task CloseAsync(CancellationToken cancellationToken = default)
     {
         return socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken);
     }
@@ -63,7 +63,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
         Aborted = true;
     }
 
-    internal void FinalizeConnection()
+    public void FinalizeConnection()
     {
         Finalized = true;
     }
