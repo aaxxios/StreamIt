@@ -20,6 +20,8 @@ public sealed class StreamItGroup
     {
         return _connectionList.TryGetValue(context, out value);
     }
+    
+    public int Count => _connectionList.Count;
 
     /// <summary>
     /// get connection by client id

@@ -47,6 +47,8 @@ public sealed class StreamItGroupList
         if (!_groups.TryGetValue(groupName, out var group))
             return;
         group.TryRemove(connection, out _);
+        if (group.Count == 0)
+            _groups.TryRemove(groupName, out _);
     }
 
     public int GroupCount => _groups.Count;
