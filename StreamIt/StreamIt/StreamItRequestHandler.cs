@@ -30,6 +30,7 @@ public sealed class StreamItRequestHandler : IDisposable
         await eventHandler.OnConnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
         if (ConnectionContext.Aborted)
             return;
+        await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
         logger.LogDebug("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);
         ConnectionContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
@@ -52,6 +53,7 @@ public sealed class StreamItRequestHandler : IDisposable
                 {
                     logger.LogDebug("connection closed or timed out: {C}", ConnectionContext.ClientId);
                     await eventHandler.OnDisconnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
+                    await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                     ConnectionContext.Abort();
                     break;
                 }
@@ -63,24 +65,28 @@ public sealed class StreamItRequestHandler : IDisposable
                     break;
                 }
             }
-            catch (WebSocketException)
+            catch (WebSocketException e)
             {
                 await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                 throw;
             }
             catch (SocketCloseException)
             {
                 await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                 throw;
             }
             catch (TaskCanceledException)
             {
                 await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                 throw;
             }
             catch (Exception)
             {
                 await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
+                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
                 throw;
             }
             finally

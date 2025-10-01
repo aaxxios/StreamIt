@@ -50,6 +50,11 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
         writeLock.Release();
     }
 
+    internal Task CloseAsync(CancellationToken cancellationToken = default)
+    {
+        return socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken);
+    }
+
     /// <summary>
     /// abort the context
     /// </summary>
