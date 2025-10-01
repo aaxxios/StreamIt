@@ -65,7 +65,7 @@ public sealed class StreamItRequestHandler : IDisposable
                     break;
                 }
             }
-            catch (WebSocketException e)
+            catch (WebSocketException)
             {
                 await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
                 await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);

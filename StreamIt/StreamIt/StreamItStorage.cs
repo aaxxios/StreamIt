@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
-
 // ReSharper disable UnusedMethodReturnValue.Global
 
 namespace StreamIt;
@@ -23,48 +20,44 @@ public sealed class StreamItStorage
     }
 
 
+    public IEnumerable<StreamItConnectionContext> Connections => connections.Connections;
+
     public ValueTask AddConnection(StreamItConnectionContext context)
     {
         connections.Add(context);
         return ValueTask.CompletedTask;
     }
 
-    public async Task RemoveConnection(StreamItConnectionContext connectionContext)
+    public async Task RemoveConnection(StreamItConnectionContext context)
     {
-        await connectionContext.GroupLock.WaitAsync();
-        if (!connections.TryRemove(connectionContext, out _))
+        if (!connections.TryRemove(context, out _))
             return;
-        foreach (var groupName in connectionContext.Groups)
-        {
-            if (_groups[groupName] is { } group)
-            {
-                group.TryRemove(connectionContext, out _);
-            }
-        }
+        if (context.Groups.Count == 0)
+            return;
+        await RemoveFromGroupsNoCheck(context.Groups, context);
     }
 
     public async Task AddToGroup(string groupName, StreamItConnectionContext context)
     {
-        if (!connections.TryGetValue(context, out var connectionContext))
-            return;
-        if (_groups[groupName] is { } group)
+        if (!connections.TryGetValue(context, out _))
         {
-            await connectionContext!.GroupLock.WaitAsync();
-            group.Add(context);
-            connectionContext.GroupLock.Release();
+            return;
         }
+
+        await context.GroupLock.WaitAsync();
+        _groups.Add(context, groupName);
+        context.Groups.Add(groupName);
+        context.GroupLock.Release();
     }
 
     public async Task AddToGroups(IEnumerable<string> groups, StreamItConnectionContext connectionContext)
     {
-        if (!connections.TryGetValue(connectionContext, out var context))
+        if (!connections.TryGetValue(connectionContext, out _))
             return;
         await connectionContext.GroupLock.WaitAsync();
         foreach (var groupName in groups)
         {
-            if (_groups[groupName] is not { } group) continue;
-            group.Add(context!);
-            connectionContext.Groups.Add(groupName);
+            _groups.Add(connectionContext, groupName);
         }
 
         connectionContext.GroupLock.Release();
@@ -76,241 +69,40 @@ public sealed class StreamItStorage
         if (!connections.TryGetValue(context, out var connectionContext))
             return;
         await connectionContext!.GroupLock.WaitAsync();
-        if (_groups[groupName] is { } group)
-        {
-            if (!group.TryRemove(connectionContext, out _))
-                return;
-            connectionContext.Groups.Remove(groupName);
-        }
-
+        _groups.Remove(connectionContext, groupName);
         context.GroupLock.Release();
     }
 
     public async Task RemoveFromGroups(IEnumerable<string> groups, StreamItConnectionContext context)
     {
+        await RemoveFromGroups(groups.ToList(), context);
+    }
+
+    public async Task RemoveFromGroups(List<string> groups, StreamItConnectionContext context)
+    {
+        if (!connections.TryRemove(context, out _))
+            return;
+        if (groups.Count == 0)
+            return;
+        await RemoveFromGroupsNoCheck(groups, context);
+    }
+
+    
+    /// <summary>
+    /// remove from groups without checking if the connection exists
+    /// </summary>
+    /// <param name="groups"></param>
+    /// <param name="context"></param>
+    private async Task RemoveFromGroupsNoCheck(IEnumerable<string> groups, StreamItConnectionContext context)
+    {
         await context.GroupLock.WaitAsync();
-        if (connections.TryRemove(context, out var connectionContext))
-            foreach (var groupName in groups)
-            {
-                if (!connectionContext!.Groups.Contains(groupName))
-                    continue;
-                if (_groups[groupName] is not { } group) continue;
-                context.Groups.Remove(groupName);
-                group.TryRemove(context, out _);
-            }
+        foreach (var groupName in groups)
+        {
+            _groups.Remove(context, groupName);
+        }
 
         context.GroupLock.Release();
     }
 }
 
-/// <summary>
-/// manage group list
-/// </summary>
-public sealed class StreamItGroupList
-{
-    private readonly ConcurrentDictionary<string, StreamItGroup> _groups = new(StringComparer.Ordinal);
 
-    public StreamItGroup? this[string groupName]
-    {
-        get
-        {
-            _groups.TryGetValue(groupName, out var group);
-            return group;
-        }
-    }
-
-    public IEnumerable<StreamItGroup> Groups => _groups.Values;
-
-
-    /// <summary>
-    /// send message to all users all groups
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task SendUserAsync(byte[] message, CancellationToken cancellationToken = default)
-    {
-        return Task.WhenAll(_groups.Values.Select(gr => gr.SendMessage(message, cancellationToken)));
-    }
-
-    /// <summary>
-    /// add connection to group
-    /// </summary>
-    /// <param name="connection"></param>
-    /// <param name="groupName"></param>
-    internal void Add(StreamItConnectionContext connection, string groupName)
-    {
-        CreateOrUpdateGroupWithConnection(groupName, connection);
-    }
-
-    public int Count => _groups.Count;
-
-
-    private void CreateOrUpdateGroupWithConnection(string groupName, StreamItConnectionContext connection)
-    {
-        _groups.AddOrUpdate(groupName, _ => AddConnectionToGroup(connection, new StreamItGroup(groupName)),
-            (_, oldCollection) =>
-            {
-                AddConnectionToGroup(connection, oldCollection);
-                return oldCollection;
-            });
-    }
-
-    private static StreamItGroup AddConnectionToGroup(
-        StreamItConnectionContext connection, StreamItGroup streamIt)
-    {
-        streamIt.Add(connection);
-        return streamIt;
-    }
-}
-
-public sealed class StreamItGroup
-{
-    public string Name { get; }
-
-    public StreamItGroup(string name)
-    {
-        Name = name;
-    }
-
-    private readonly StreamItConnectionList _connectionList = new();
-
-    public IEnumerable<StreamItConnectionContext> Connections => _connectionList.Connections;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
-    {
-        return _connectionList.TryGetValue(context, out value);
-    }
-
-    /// <summary>
-    /// get connection by client id
-    /// </summary>
-    /// <param name="clientId"></param>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(Guid clientId, out StreamItConnectionContext? value)
-    {
-        return _connectionList.TryGetValue(clientId, out value);
-    }
-
-    public StreamItConnectionContext? this[Guid clientId]
-    {
-        get
-        {
-            _connectionList.TryGetValue(clientId, out var value);
-            return value;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, out StreamItConnectionContext? removed)
-    {
-        return _connectionList.TryRemove(context, out removed);
-    }
-
-
-    /// <summary>
-    /// add a connection to the group
-    /// </summary>
-    /// <param name="connection"></param>
-    /// <returns></returns>
-    public StreamItGroup Add(StreamItConnectionContext connection)
-    {
-        _connectionList.Add(connection);
-        return this;
-    }
-
-    /// <summary>
-    /// send a message to  all users in the group
-    /// </summary>
-    /// <param name="message"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task SendMessage(byte[] message, CancellationToken cancellationToken = default)
-    {
-        return _connectionList.SendMessage(message, cancellationToken);
-    }
-
-
-    /// <summary>
-    /// send message to user in this group
-    /// </summary>
-    /// <param name="clientId"></param>
-    /// <param name="message"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task SendUserAsync(Guid clientId, byte[] message, CancellationToken cancellationToken = default)
-    {
-        return _connectionList.SendUserAsync(clientId, message, cancellationToken);
-    }
-
-    /// <summary>
-    /// send message to two users in this group
-    /// </summary>
-    /// <param name="clientId1"></param>
-    /// <param name="clientId2"></param>
-    /// <param name="message"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
-        CancellationToken cancellationToken = default)
-    {
-        return _connectionList.SendUsersAsync(clientId1, clientId2, message, cancellationToken);
-    }
-}
-
-public sealed class StreamItConnectionList
-{
-    private readonly ConcurrentDictionary<Guid, StreamItConnectionContext> _itConnectionContexts = new();
-
-    public IEnumerable<StreamItConnectionContext> Connections => _itConnectionContexts.Values;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
-    {
-        return _itConnectionContexts.TryGetValue(context.ClientId, out value);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(Guid id, out StreamItConnectionContext? value)
-    {
-        return _itConnectionContexts.TryGetValue(id, out value);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, out StreamItConnectionContext? removed)
-    {
-        return _itConnectionContexts.TryRemove(context.ClientId, out removed);
-    }
-
-    public void Add(StreamItConnectionContext connection)
-    {
-        _itConnectionContexts.AddOrUpdate(connection.ClientId, connection, (_, _) => connection);
-    }
-
-    public Task SendMessage(byte[] message, CancellationToken cancellationToken = default)
-    {
-        return Task.WhenAll(
-            _itConnectionContexts.Values.Select(context => context.SendAsync(message, cancellationToken)));
-    }
-
-    public Task SendUserAsync(Guid clientId, byte[] message, CancellationToken cancellationToken = default)
-    {
-        return !_itConnectionContexts.TryGetValue(clientId, out var connection)
-            ? Task.CompletedTask
-            : connection.SendAsync(message, cancellationToken);
-    }
-
-    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
-        CancellationToken cancellationToken = default)
-    {
-        List<Task>? tasks = null;
-        if (_itConnectionContexts.TryGetValue(clientId1, out var connection1))
-            (tasks = []).Add(connection1.SendAsync(message, cancellationToken));
-        if (_itConnectionContexts.TryGetValue(clientId2, out var connection2))
-            (tasks ??= []).Add(connection2.SendAsync(message, cancellationToken));
-        return tasks is null ? Task.CompletedTask : Task.WhenAll(tasks);
-    }
-}
