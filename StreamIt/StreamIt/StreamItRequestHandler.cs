@@ -31,7 +31,7 @@ public sealed class StreamItRequestHandler : IDisposable
         if (ConnectionContext.Aborted)
         {
             await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
+            logger.LogWarning("connection aborted: {C}", ConnectionContext.ClientId);
         }
        
         logger.LogInformation("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);

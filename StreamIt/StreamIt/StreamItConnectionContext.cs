@@ -11,6 +11,8 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
     public Guid ClientId => _clientId;
 
     public WebSocketState State => socket.State;
+    
+    public WebSocketCloseStatus? CloseStatus => socket.CloseStatus;
     private bool Finalized { get; set; }
 
     /// <summary>

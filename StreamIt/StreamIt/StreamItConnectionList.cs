@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace StreamIt;
 
@@ -14,8 +15,8 @@ public sealed class StreamItConnectionList
     {
         return _itConnectionContexts.TryGetValue(context.ClientId, out value);
     }
-    
-    
+
+
     public int Count => _itConnectionContexts.Count;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -41,21 +42,23 @@ public sealed class StreamItConnectionList
             _itConnectionContexts.Values.Select(context => context.SendAsync(message, cancellationToken)));
     }
 
-    public Task SendUserAsync(Guid clientId, byte[] message, CancellationToken cancellationToken = default)
+    public Task SendUserAsync<T>(Guid clientId, T message, JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         return !_itConnectionContexts.TryGetValue(clientId, out var connection)
             ? Task.CompletedTask
-            : connection.SendAsync(message, cancellationToken);
+            : connection.SendAsync(JsonSerializer.SerializeToUtf8Bytes(message, options: options), cancellationToken);
     }
 
-    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
+    public Task SendUsersAsync<T>(Guid clientId1, Guid clientId2, T message, JsonSerializerOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        List<Task>? tasks = null;
-        if (_itConnectionContexts.TryGetValue(clientId1, out var connection1))
-            (tasks = []).Add(connection1.SendAsync(message, cancellationToken));
-        if (_itConnectionContexts.TryGetValue(clientId2, out var connection2))
-            (tasks ??= []).Add(connection2.SendAsync(message, cancellationToken));
-        return tasks is null ? Task.CompletedTask : Task.WhenAll(tasks);
+        _itConnectionContexts.TryGetValue(clientId1, out var connection1);
+        _itConnectionContexts.TryGetValue(clientId2, out var connection2);
+        if (connection1 is null || connection2 is null)
+            return Task.CompletedTask;
+        var data = JsonSerializer.SerializeToUtf8Bytes(message, options: options);
+        return Task.WhenAll(connection1.SendAsync(data, cancellationToken),
+            connection2.SendAsync(data, cancellationToken));
     }
 }
