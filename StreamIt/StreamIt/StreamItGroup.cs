@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace StreamIt;
 
@@ -20,7 +21,7 @@ public sealed class StreamItGroup
     {
         return _connectionList.TryGetValue(context, out value);
     }
-    
+
     public int Count => _connectionList.Count;
 
     /// <summary>
@@ -77,13 +78,15 @@ public sealed class StreamItGroup
     /// <summary>
     /// send message to user in this group
     /// </summary>
-    /// <param name="clientId"></param>
-    /// <param name="message"></param>
+    /// <param name="clientId">id identifying the connection</param>
+    /// <param name="message">message to send</param>
+    /// <param name="options"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    public Task SendUserAsync(Guid clientId, byte[] message, CancellationToken cancellationToken = default)
+    public Task SendUserAsync<T>(Guid clientId, T message, JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
-        return _connectionList.SendUserAsync(clientId, message, cancellationToken);
+        return _connectionList.SendUserAsync(clientId, message, options, cancellationToken);
     }
 
     /// <summary>
@@ -92,11 +95,13 @@ public sealed class StreamItGroup
     /// <param name="clientId1"></param>
     /// <param name="clientId2"></param>
     /// <param name="message"></param>
+    /// <param name="options"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    public Task SendUsersAsync(Guid clientId1, Guid clientId2, byte[] message,
+    public Task SendUsersAsync<T>(Guid clientId1, Guid clientId2, T message,
+        JsonSerializerOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        return _connectionList.SendUsersAsync(clientId1, clientId2, message, cancellationToken);
+        return _connectionList.SendUsersAsync(clientId1, clientId2, message, options, cancellationToken);
     }
 }
