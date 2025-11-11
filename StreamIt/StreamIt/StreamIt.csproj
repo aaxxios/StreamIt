@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFrameworks>net9.0;net8.0;net6.0;</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -9,7 +9,7 @@
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>StreamIt</PackageId>
         <Authors>aaxxios</Authors>
-        <Version>1.0.19</Version>
+        <Version>1.0.20</Version>
         <PackageReleaseNotes>add serialiser options support</PackageReleaseNotes>
     </PropertyGroup>
 
