@@ -1,5 +1,6 @@
 namespace StreamIt;
 
-public class SocketCloseException() : Exception("connection han been closed")
+public class SocketCloseException: Exception
 {
+    public SocketCloseException() : base("connection han been closed"){}
 }

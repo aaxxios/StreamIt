@@ -1,6 +1,9 @@
 namespace StreamIt;
 
-public class MessageTooLargeException(int expected, int actual)
-    : Exception($"message too large, expected maximum size: {expected}, got {actual}")
+public class MessageTooLargeException : Exception
 {
+    public MessageTooLargeException(int expected, int actual) : base(
+        $"message too large, expected maximum size: {expected}, got {actual}")
+    {
+    }
 }

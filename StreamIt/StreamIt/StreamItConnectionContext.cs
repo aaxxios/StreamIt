@@ -5,20 +5,30 @@ using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, IOptions<StreamItOptions> options) : IDisposable
+public sealed class StreamItConnectionContext : IDisposable
 {
-    private Guid _clientId { get; set; } = clientId;
+    private Guid _clientId { get; set; }
+    private readonly WebSocket socket;
+    private readonly IOptions<StreamItOptions> options;
+
+    public StreamItConnectionContext(Guid clientId, WebSocket socket, IOptions<StreamItOptions> options)
+    {
+        _clientId = clientId;
+        this.socket = socket;
+        this.options = options;
+    }
+
     public Guid ClientId => _clientId;
 
     public WebSocketState State => socket.State;
-    
+
     public WebSocketCloseStatus? CloseStatus => socket.CloseStatus;
     private bool Finalized { get; set; }
 
     /// <summary>
     /// where data can be stored on the context
     /// </summary>
-    public Dictionary<string, object> Properties { get; } = [];
+    public Dictionary<string, object> Properties { get; } = new();
 
 
     /// <summary>
@@ -33,7 +43,7 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
         _clientId = guid;
     }
 
-    public readonly HashSet<string> Groups = [];
+    public readonly HashSet<string> Groups = new();
     public bool Aborted { get; private set; }
 
     private readonly SemaphoreSlim writeLock = new(1);
@@ -182,8 +192,13 @@ public sealed class StreamItConnectionContext(Guid clientId, WebSocket socket, I
     }
 }
 
-public class StreamItReceivedMessage(WebSocketReceiveResult result, int read)
+public class StreamItReceivedMessage
 {
-    internal readonly WebSocketReceiveResult Result = result;
-    internal readonly int Read = read;
+    public StreamItReceivedMessage(WebSocketReceiveResult result, int read)
+    {
+        Result = result;
+        Read = read;
+    }
+    internal readonly WebSocketReceiveResult Result;
+    internal readonly int Read;
 }
