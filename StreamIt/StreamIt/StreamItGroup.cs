@@ -1,10 +1,17 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace StreamIt;
 
+/// <summary>
+/// a unique group of connections
+/// </summary>
 public sealed class StreamItGroup
 {
+    /// <summary>
+    /// name of the group
+    /// </summary>
     public string Name { get; }
 
     public StreamItGroup(string name)
@@ -22,6 +29,9 @@ public sealed class StreamItGroup
         return _connectionList.TryGetValue(context, out value);
     }
 
+    /// <summary>
+    /// number of connections in the group
+    /// </summary>
     public int Count => _connectionList.Count;
 
     /// <summary>
@@ -46,7 +56,7 @@ public sealed class StreamItGroup
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, out StreamItConnectionContext? removed)
+    public bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)] out StreamItConnectionContext? removed)
     {
         return _connectionList.TryRemove(context, out removed);
     }
@@ -69,14 +79,27 @@ public sealed class StreamItGroup
     /// <param name="message"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    public Task SendMessage(byte[] message, CancellationToken cancellationToken = default)
+    public Task SendAllAsync(byte[] message, CancellationToken cancellationToken = default)
     {
-        return _connectionList.SendMessage(message, cancellationToken);
+        return _connectionList.SendMessageAsync(message, cancellationToken);
     }
 
+    /// <summary>
+    /// send a message to all connections in the group
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="options"></param>
+    /// <param name="cancellationToken"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public Task SendAllAsync<T>(T message, JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        return _connectionList.SendMessageAsync(message, options, cancellationToken);
+    }
 
     /// <summary>
-    /// send message to user in this group
+    /// send a message to a connection in the group
     /// </summary>
     /// <param name="clientId">id identifying the connection</param>
     /// <param name="message">message to send</param>
@@ -90,7 +113,7 @@ public sealed class StreamItGroup
     }
 
     /// <summary>
-    /// send message to two users in this group
+    /// send a message to specified connections in the group
     /// </summary>
     /// <param name="clientId1"></param>
     /// <param name="clientId2"></param>

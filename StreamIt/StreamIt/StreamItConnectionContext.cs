@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace StreamIt;
@@ -8,27 +9,41 @@ namespace StreamIt;
 public sealed class StreamItConnectionContext : IDisposable
 {
     private Guid _clientId { get; set; }
-    private readonly WebSocket socket;
+    private readonly WebSocket connection;
     private readonly IOptions<StreamItOptions> options;
 
-    public StreamItConnectionContext(Guid clientId, WebSocket socket, IOptions<StreamItOptions> options)
+    /// <summary>
+    /// groups which this connection belongs to
+    /// </summary>
+    public readonly ContextGroup<string> Groups;
+
+    public bool Aborted { get; private set; }
+
+    private readonly SemaphoreSlim writeLock;
+
+    private readonly SemaphoreSlim readLock;
+
+    internal readonly SemaphoreSlim GroupLock;
+
+    public StreamItConnectionContext(Guid clientId, WebSocket webSocket, IServiceProvider serviceProvider)
     {
         _clientId = clientId;
-        this.socket = socket;
-        this.options = options;
+        connection = webSocket;
+        options = serviceProvider.GetRequiredService<IOptions<StreamItOptions>>();
+        writeLock = new SemaphoreSlim(1, maxCount: 1);
+        readLock = new SemaphoreSlim(1, 1);
+        GroupLock = new SemaphoreSlim(1, 1);
+        Groups = new ContextGroup<string>();
     }
 
     public Guid ClientId => _clientId;
 
-    public WebSocketState State => socket.State;
-
-    public WebSocketCloseStatus? CloseStatus => socket.CloseStatus;
     private bool Finalized { get; set; }
 
     /// <summary>
-    /// where data can be stored on the context
+    /// stores context aware data
     /// </summary>
-    public Dictionary<string, object> Properties { get; } = new();
+    public Dictionary<string, object> Data { get; } = new();
 
 
     /// <summary>
@@ -39,59 +54,60 @@ public sealed class StreamItConnectionContext : IDisposable
     public void SetClient(Guid guid)
     {
         if (Finalized)
-            throw new InvalidOperationException("Connection is finalized");
+            throw new InvalidOperationException("connection is finalized");
         _clientId = guid;
     }
 
-    public readonly HashSet<string> Groups = new();
-    public bool Aborted { get; private set; }
 
-    private readonly SemaphoreSlim writeLock = new(1);
-
-    private readonly SemaphoreSlim readLock = new(1);
-
-    internal readonly SemaphoreSlim GroupLock = new(1);
-
-
+    /// <summary>
+    /// send a message to this connection
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="cancellationToken"></param>
     public async Task SendAsync(byte[] message, CancellationToken cancellationToken = default)
     {
         if (Aborted)
             return;
         await writeLock.WaitAsync(CancellationToken.None);
-        await socket.SendAsync(message, WebSocketMessageType.Binary, true, cancellationToken);
+        await connection.SendAsync(message, WebSocketMessageType.Binary, true, cancellationToken).ConfigureAwait(false);
         writeLock.Release();
     }
 
     public Task CloseAsync(CancellationToken cancellationToken = default)
     {
-        return socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken);
+        if (Aborted)
+            throw new InvalidOperationException("connection is already aborted");
+        Aborted = true;
+        return connection.CloseAsync(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken);
     }
 
     /// <summary>
-    /// abort the context
+    /// abort the context 
     /// </summary>
     public void Abort()
     {
+        if (Aborted)
+            throw new InvalidOperationException("connection is already aborted");
         Aborted = true;
     }
 
     public void FinalizeConnection()
     {
+        if (Finalized)
+            throw new InvalidOperationException("connection is already finalized");
         Finalized = true;
     }
 
     /// <summary>
     /// reads raw bytes from connection
     /// </summary>
-    /// <param name="buffer"></param>
+    /// <param name="buffer">buffer to read into</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
     /// <exception cref="SocketCloseException"></exception>
     /// <exception cref="MessageTooLargeException"></exception>
-    public async Task<int> ReadRawBytesAsync(byte[] buffer, CancellationToken cancellationToken = default)
+    private async Task<int> ReadRawBytesAsync(byte[] buffer, CancellationToken cancellationToken = default)
     {
-        if (Aborted)
-            throw new SocketCloseException();
         await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
         var read = 0;
@@ -100,12 +116,11 @@ public sealed class StreamItConnectionContext : IDisposable
         {
             if (Aborted)
                 throw new SocketCloseException();
-            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
-                .GetAwaiter()
-                .GetResult();
+            reply = await connection.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
+                .ConfigureAwait(false);
             read += reply.Count;
             remaining -= reply.Count;
-        } while (!reply.EndOfMessage && read ! > options.Value.MaxMessageSize);
+        } while (!reply.EndOfMessage && remaining > 0);
 
         readLock.Release();
         if (read == options.Value.MaxMessageSize && !reply.EndOfMessage)
@@ -126,7 +141,7 @@ public sealed class StreamItConnectionContext : IDisposable
         var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
         try
         {
-            var read = await ReadRawBytesAsync(buffer, cancellationToken);
+            var read = await ReadRawBytesAsync(buffer, cancellationToken).ConfigureAwait(false);
             return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options: options.Value.SerializerOptions)!;
         }
         finally
@@ -136,40 +151,17 @@ public sealed class StreamItConnectionContext : IDisposable
         }
     }
 
+    /// <summary>
+    /// reads message from connection 
+    /// </summary>
+    /// <param name="buffer">destination to read message into</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>number of bytes read</returns>
     public Task<int> ReceiveMessageAsync(byte[] buffer, CancellationToken cancellationToken = default)
     {
         return ReadRawBytesAsync(buffer, cancellationToken);
     }
-
-    internal async Task<StreamItReceivedMessage> ReceiveMessageWithResult(byte[] buffer,
-        CancellationToken cancellationToken = default)
-    {
-        if (Aborted)
-            throw new SocketCloseException();
-        await readLock.WaitAsync(CancellationToken.None);
-        WebSocketReceiveResult reply;
-        var read = 0;
-        var remaining = options.Value.MaxMessageSize;
-        do
-        {
-            if (Aborted)
-                throw new SocketCloseException();
-            reply = socket.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
-                .GetAwaiter()
-                .GetResult();
-            read += reply.Count;
-            remaining -= reply.Count;
-        } while (!reply.EndOfMessage && read ! > options.Value.MaxMessageSize && !Aborted);
-
-        readLock.Release();
-        if (read == options.Value.MaxMessageSize && !reply.EndOfMessage)
-            throw new MessageTooLargeException(options.Value.MaxMessageSize, read);
-        if (reply.MessageType == WebSocketMessageType.Close)
-            Aborted = true;
-
-        return new StreamItReceivedMessage(reply, read);
-    }
-
+    
     private bool disposed;
 
     public void Dispose()
@@ -183,22 +175,11 @@ public sealed class StreamItConnectionContext : IDisposable
             return;
         if (disposing)
         {
-            socket.Dispose();
             readLock.Dispose();
             writeLock.Dispose();
+            GroupLock.Dispose();
         }
-
+        
         disposed = true;
     }
-}
-
-public class StreamItReceivedMessage
-{
-    public StreamItReceivedMessage(WebSocketReceiveResult result, int read)
-    {
-        Result = result;
-        Read = read;
-    }
-    internal readonly WebSocketReceiveResult Result;
-    internal readonly int Read;
 }

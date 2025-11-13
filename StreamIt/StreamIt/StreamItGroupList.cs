@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace StreamIt;
 
@@ -18,18 +19,34 @@ public sealed class StreamItGroupList
         }
     }
 
+    /// <summary>
+    /// get the groups in the list
+    /// </summary>
     public IEnumerable<StreamItGroup> Groups => _groups.Values;
 
 
     /// <summary>
-    /// send a message to all users in all groups
+    /// send a message to all groups
     /// </summary>
-    /// <param name="message"></param>
+    /// <param name="message">message to send</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    public Task SendUserAsync(byte[] message, CancellationToken cancellationToken = default)
+    public Task SendAsync(byte[] message, CancellationToken cancellationToken = default)
     {
-        return Task.WhenAll(_groups.Values.Select(gr => gr.SendMessage(message, cancellationToken)));
+        return Task.WhenAll(_groups.Values.Select(gr => gr.SendAllAsync(message, cancellationToken)));
+    }
+
+    /// <summary>
+    /// send a message to all groups
+    /// </summary>
+    /// <param name="message">message to send</param>
+    /// <param name="options"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public Task SendAsync<T>(T message, JsonSerializerOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.WhenAll(_groups.Values.Select(gr => gr.SendAllAsync(message, options, cancellationToken)));
     }
 
     /// <summary>
@@ -51,7 +68,10 @@ public sealed class StreamItGroupList
             _groups.TryRemove(groupName, out _);
     }
 
-    public int GroupCount => _groups.Count;
+    /// <summary>
+    /// get the number of groups in the list
+    /// </summary>
+    public int Count => _groups.Count;
 
 
     private void CreateOrUpdateGroupWithConnection(string groupName, StreamItConnectionContext connection)

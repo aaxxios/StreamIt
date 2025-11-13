@@ -1,5 +1,5 @@
 using System.Buffers;
-using System.Net.WebSockets;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,128 +8,115 @@ using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public sealed class StreamItRequestHandler : IDisposable
+public abstract class StreamItRequestHandler
 {
-    private readonly StreamItConnectionContext ConnectionContext;
+#pragma warning disable CS8618
+    private IOptions<StreamItOptions> _options { get; set; }
+    private ILogger<StreamItRequestHandler>? _logger { get; set; }
+    private StreamItStorage _storage { get; set; }
 
-    private readonly IOptions<StreamItOptions> options;
-    private readonly IStreamItEventHandler eventHandler;
-    private readonly ILogger<StreamItRequestHandler> logger;
+    private StreamItConnectionContext _context { get; set; }
 
-    internal StreamItRequestHandler(StreamItConnectionContext context, IOptions<StreamItOptions> options,
-        IStreamItEventHandler eventHandler, IServiceProvider serviceProvider)
+#pragma warning restore CS8618
+
+    protected StreamItConnectionContext Context => _context;
+    
+    protected IEnumerable<StreamItGroup> Groups => _storage.Groups;
+
+
+    internal async Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
     {
-        ConnectionContext = context;
-        this.options = options;
-        this.eventHandler = eventHandler;
-        logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<StreamItRequestHandler>();
-    }
-
-    internal async Task HandleConnection(CancellationToken cancellationToken = default)
-    {
-        await eventHandler.OnConnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
-        if (ConnectionContext.Aborted)
+        if (!context.WebSockets.IsWebSocketRequest)
         {
-            await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogWarning("connection aborted: {C}", ConnectionContext.ClientId);
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
         }
-       
-        logger.LogInformation("Finalising connection {C} and keeping alive", ConnectionContext.ClientId);
-        ConnectionContext.FinalizeConnection();
+
+        using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
+        using var streamItContext = new StreamItConnectionContext(Guid.NewGuid(), websocket, context.RequestServices);
+        _context = streamItContext;
+        _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
+        _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
+        _logger = context.RequestServices.GetService<ILogger<StreamItRequestHandler>>();
+
+        await _storage.AddConnection(streamItContext);
+        await OnConnected(cancellationToken).ConfigureAwait(false);
+        if (streamItContext.Aborted)
+        {
+            await streamItContext.CloseAsync(cancellationToken).ConfigureAwait(false);
+            await _storage.RemoveConnection(streamItContext);
+            _logger?.LogDebug("connection aborted: {C}", streamItContext.ClientId);
+        }
+
+        _logger?.LogDebug("finalising connection {C} and keeping alive", streamItContext.ClientId);
+        streamItContext.FinalizeConnection();
         await KeepAlive(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task KeepAlive(CancellationToken cancellationToken)
     {
-        await Task.Yield();
-        while (ConnectionContext.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested &&
-               !ConnectionContext.Aborted)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxMessageSize);
+            var buffer = ArrayPool<byte>.Shared.Rent(_options.Value.MaxMessageSize);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(_options.Value.ReadMessageTimeout);
             try
             {
-                using var recTokenSource = new CancellationTokenSource(options.Value.ReadMessageTimeout);
-                var result = await ConnectionContext.ReceiveMessageWithResult(buffer, recTokenSource.Token)
+                var read = await _context.ReceiveMessageAsync(buffer, cts.Token).ConfigureAwait(false);
+                await OnMessage(buffer.AsSpan(0, read), cancellationToken)
                     .ConfigureAwait(false);
-                logger.LogInformation("receive message from client: {C}", result);
-                if (result.Result.MessageType == WebSocketMessageType.Close)
-                {
-                    logger.LogInformation("connection closed or timed out: {C}", ConnectionContext.ClientId);
-                    await eventHandler.OnDisconnected(ConnectionContext, cancellationToken).ConfigureAwait(false);
-                    await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                    ConnectionContext.Abort();
-                    break;
-                }
-
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
                 try
                 {
-                    await eventHandler.OnMessage(ConnectionContext, buffer.AsSpan(0, result.Read), cancellationToken);
+                    await _context.CloseAsync(cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception e)
+                finally
                 {
-                    logger.LogError(e, "event handler error handling message from client: {C}",
-                        ConnectionContext.ClientId);
-                    await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                    ConnectionContext.Abort();
-                    break;
+                    await _storage.RemoveConnection(_context);
                 }
-
-                if (ConnectionContext.Aborted)
-                {
-                    logger.LogInformation("connection aborted: {C}", ConnectionContext.ClientId);
-                    break;
-                }
-            }
-            catch (WebSocketException)
-            {
-                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
-                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                throw;
             }
             catch (SocketCloseException)
             {
-                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
-                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                throw;
-            }
-            catch (TaskCanceledException)
-            {
-                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
-                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                throw;
-            }
-            catch (Exception)
-            {
-                await eventHandler.OnDisconnected(ConnectionContext, cancellationToken);
-                await ConnectionContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-                throw;
+                await _storage.RemoveConnection(_context);
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
 
-            await Task.Yield();
-            await Task.Delay(options.Value.KeepAliveInterval, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(_options.Value.KeepAliveInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private bool disposed;
 
-    public void Dispose()
+    /// <summary>
+    /// called when a client connects. 
+    /// </summary>
+    /// <returns></returns>
+    protected virtual Task OnConnected(CancellationToken _ = default)
     {
-        Dispose(true);
+        return Task.CompletedTask;
     }
 
-    public void Dispose(bool disposing)
+    /// <summary>
+    /// called when a client disconnects
+    /// </summary>
+    /// <returns></returns>
+    protected virtual Task OnDisconnected(CancellationToken _ = default)
     {
-        if (disposed)
-            return;
-        if (disposing)
-        {
-            ConnectionContext.Dispose();
-        }
+        return Task.CompletedTask;
+    }
 
-        disposed = true;
+    /// <summary>
+    /// called when a message is received from a client
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    protected virtual Task OnMessage(ReadOnlySpan<byte> message, CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
     }
 }
