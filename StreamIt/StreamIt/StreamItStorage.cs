@@ -1,42 +1,38 @@
-// ReSharper disable UnusedMethodReturnValue.Global
-
 namespace StreamIt;
 
-/// <summary>
-/// global storage of all connections and groups
-/// </summary>
 public sealed class StreamItStorage
 {
     private readonly StreamItConnectionList connections = new();
 
-    private StreamItGroupList _groups { get; } = new();
+    private readonly StreamItGroupList _groups = new();
 
     public IEnumerable<StreamItGroup> Groups => _groups.Groups;
-
 
     public StreamItGroup? Group(string groupName)
     {
         return _groups[groupName];
     }
 
-
     public IEnumerable<StreamItConnectionContext> Connections => connections.Connections;
 
-    public ValueTask AddConnection(StreamItConnectionContext context)
+    internal ValueTask AddConnection(StreamItConnectionContext context)
     {
         connections.Add(context);
         return ValueTask.CompletedTask;
     }
 
-    public async Task RemoveConnection(StreamItConnectionContext context)
+    internal Task RemoveConnection(StreamItConnectionContext context)
     {
-        if (!connections.TryRemove(context, out _))
-            return;
-        if (context.Groups.Count == 0)
-            return;
-        await RemoveFromGroupsNoCheck(context.Groups, context);
+        if (!connections.TryRemove(context, out _) || context.Groups.Count == 0)
+            return Task.CompletedTask;
+        return RemoveFromGroupsNoCheck(context.Groups, context);
     }
 
+    /// <summary>
+    /// add the connection to the group
+    /// </summary>
+    /// <param name="groupName"></param>
+    /// <param name="context"></param>
     public async Task AddToGroup(string groupName, StreamItConnectionContext context)
     {
         if (!connections.TryGetValue(context, out _))
@@ -50,6 +46,11 @@ public sealed class StreamItStorage
         context.GroupLock.Release();
     }
 
+    /// <summary>
+    /// add the connection to multiple groups
+    /// </summary>
+    /// <param name="groups"></param>
+    /// <param name="connectionContext"></param>
     public async Task AddToGroups(IEnumerable<string> groups, StreamItConnectionContext connectionContext)
     {
         if (!connections.TryGetValue(connectionContext, out _))
@@ -58,6 +59,7 @@ public sealed class StreamItStorage
         foreach (var groupName in groups)
         {
             _groups.Add(connectionContext, groupName);
+            connectionContext.Groups.Add(groupName);
         }
 
         connectionContext.GroupLock.Release();
@@ -70,24 +72,23 @@ public sealed class StreamItStorage
             return;
         await connectionContext!.GroupLock.WaitAsync();
         _groups.Remove(connectionContext, groupName);
+        context.Groups.Remove(groupName);
         context.GroupLock.Release();
     }
 
-    public async Task RemoveFromGroups(IEnumerable<string> groups, StreamItConnectionContext context)
+    public Task RemoveFromGroups(IEnumerable<string> groups, StreamItConnectionContext context)
     {
-        await RemoveFromGroups(groups.ToList(), context);
+        return RemoveFromGroups(groups.ToList(), context);
     }
 
-    public async Task RemoveFromGroups(List<string> groups, StreamItConnectionContext context)
+    public Task RemoveFromGroups(List<string> groups, StreamItConnectionContext context)
     {
-        if (!connections.TryRemove(context, out _))
-            return;
-        if (groups.Count == 0)
-            return;
-        await RemoveFromGroupsNoCheck(groups, context);
+        if (groups.Count == 0 || !connections.TryGetValue(context, out _))
+            return Task.CompletedTask;
+        return RemoveFromGroupsNoCheck(groups, context);
     }
 
-    
+
     /// <summary>
     /// remove from groups without checking if the connection exists
     /// </summary>
@@ -99,10 +100,9 @@ public sealed class StreamItStorage
         foreach (var groupName in groups)
         {
             _groups.Remove(context, groupName);
+            context.Groups.Remove(groupName);
         }
 
         context.GroupLock.Release();
     }
 }
-
-
