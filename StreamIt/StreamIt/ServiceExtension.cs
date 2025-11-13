@@ -1,7 +1,8 @@
+using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
@@ -14,31 +15,35 @@ public static class ServiceExtension
     public static void AddStreamIt(this IServiceCollection services)
     {
         services.AddOptions<StreamItOptions>();
+        services.AddSingleton<StreamItStorage>(_ => new StreamItStorage());
+        AddDiscoveredHandlers(services);
     }
 
-    /// <summary>
-    /// usee StreamIt in app
-    /// </summary>
-    /// <param name="app"></param>
-    /// <returns></returns>
+    private static void AddDiscoveredHandlers(this IServiceCollection services)
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        ArgumentNullException.ThrowIfNull(assembly);
+        var type = typeof(StreamItRequestHandler);
+        foreach (var handler in assembly.GetTypes().Where(t => t.IsAssignableTo(type) && t != type))
+        {
+            services.AddScoped(handler);
+        }
+    }
+    
     public static WebApplication UseStreamIt(this WebApplication app)
     {
+        app.Services.GetRequiredService<StreamItStorage>();
         app.UseWebSockets();
         return app;
     }
 
-    public static RouteHandlerBuilder UseStreamIt(this WebApplication app, string path, IStreamItEventHandler eventHandler)
+    public static RouteHandlerBuilder MapStreamIt<T>(this WebApplication app, string path)
+        where T : StreamItRequestHandler
     {
-        var options = app.Services.GetRequiredService<IOptions<StreamItOptions>>();
-       return app.MapGet(path, async (HttpContext context) =>
+        return app.MapGet(path, Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
         {
-            if (!context.WebSockets.IsWebSocketRequest)
-                return Results.BadRequest();
-            var socket = await context.WebSockets.AcceptWebSocketAsync();
-            using var connectionContext = new StreamItConnectionContext(Guid.NewGuid(), socket, options);
-            using var requestHandler = new StreamItRequestHandler(connectionContext, options, eventHandler, app.Services);
-            await requestHandler.HandleConnection(app.Lifetime.ApplicationStopping);
-            return Results.Ok();
+            var handler = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<T>();
+            return handler.HandleConnection(context, context.RequestAborted);
         });
     }
 }
