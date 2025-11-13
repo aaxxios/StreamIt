@@ -19,6 +19,7 @@ public sealed class StreamItConnectionList
         return _itConnectionContexts.TryGetValue(context.ClientId, out value);
     }
 
+    internal bool Contains(StreamItConnectionContext context) => _itConnectionContexts.ContainsKey(context.ClientId);
 
     /// <summary>
     /// number of connections in the list
@@ -87,7 +88,7 @@ public sealed class StreamItConnectionList
     /// <summary>
     /// send a message to a connection
     /// </summary>
-    /// <param name="clientId">id of the connection</param>
+    /// <param name="clientId">client id of the context</param>
     /// <param name="message">message to send</param>
     /// <param name="options"></param>
     /// <param name="cancellationToken"></param>

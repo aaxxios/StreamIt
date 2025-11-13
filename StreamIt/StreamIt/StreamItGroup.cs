@@ -21,10 +21,9 @@ public sealed class StreamItGroup
 
     private readonly StreamItConnectionList _connectionList = new();
 
-    public IEnumerable<StreamItConnectionContext> Connections => _connectionList.Connections;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
+    internal bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
     {
         return _connectionList.TryGetValue(context, out value);
     }
@@ -33,19 +32,7 @@ public sealed class StreamItGroup
     /// number of connections in the group
     /// </summary>
     public int Count => _connectionList.Count;
-
-    /// <summary>
-    /// get connection by client id
-    /// </summary>
-    /// <param name="clientId"></param>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(Guid clientId, out StreamItConnectionContext? value)
-    {
-        return _connectionList.TryGetValue(clientId, out value);
-    }
-
+    
     public StreamItConnectionContext? this[Guid clientId]
     {
         get
@@ -55,8 +42,13 @@ public sealed class StreamItGroup
         }
     }
 
+    public bool IsMember(StreamItConnectionContext context)
+    {
+        return _connectionList.Contains(context);
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)] out StreamItConnectionContext? removed)
+    internal bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)] out StreamItConnectionContext? removed)
     {
         return _connectionList.TryRemove(context, out removed);
     }
@@ -67,7 +59,7 @@ public sealed class StreamItGroup
     /// </summary>
     /// <param name="connection"></param>
     /// <returns></returns>
-    public StreamItGroup Add(StreamItConnectionContext connection)
+    internal StreamItGroup Add(StreamItConnectionContext connection)
     {
         _connectionList.Add(connection);
         return this;

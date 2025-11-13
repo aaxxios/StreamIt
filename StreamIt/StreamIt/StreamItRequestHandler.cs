@@ -20,8 +20,8 @@ public abstract class StreamItRequestHandler
 #pragma warning restore CS8618
 
     protected StreamItConnectionContext Context => _context;
-    
-    protected IEnumerable<StreamItGroup> Groups => _storage.Groups;
+
+    protected StreamItGroupList Groups => _storage.Groups;
 
 
     internal async Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
@@ -33,24 +33,34 @@ public abstract class StreamItRequestHandler
         }
 
         using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-        using var streamItContext = new StreamItConnectionContext(Guid.NewGuid(), websocket, context.RequestServices);
-        _context = streamItContext;
+        _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, context.RequestServices);
         _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
         _logger = context.RequestServices.GetService<ILogger<StreamItRequestHandler>>();
 
-        await _storage.AddConnection(streamItContext);
+        await _storage.AddConnection(_context);
         await OnConnected(cancellationToken).ConfigureAwait(false);
-        if (streamItContext.Aborted)
+        if (_context.Aborted)
         {
-            await streamItContext.CloseAsync(cancellationToken).ConfigureAwait(false);
-            await _storage.RemoveConnection(streamItContext);
-            _logger?.LogDebug("connection aborted: {C}", streamItContext.ClientId);
+            await _context.CloseAsync(cancellationToken).ConfigureAwait(false);
+            await _storage.RemoveConnection(_context);
+            _logger?.LogDebug("connection aborted: {C}", _context.ClientId);
         }
 
-        _logger?.LogDebug("finalising connection {C} and keeping alive", streamItContext.ClientId);
-        streamItContext.FinalizeConnection();
-        await KeepAlive(cancellationToken).ConfigureAwait(false);
+        _logger?.LogDebug("finalising connection {C} and keeping alive", _context.ClientId);
+        _context.FinalizeConnection();
+        try
+        {
+            await KeepAlive(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await _storage.RemoveConnection(_context);
+                await OnDisconnected(cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private async Task KeepAlive(CancellationToken cancellationToken)
@@ -65,21 +75,10 @@ public abstract class StreamItRequestHandler
                 var read = await _context.ReceiveMessageAsync(buffer, cts.Token).ConfigureAwait(false);
                 await OnMessage(buffer.AsSpan(0, read), cancellationToken)
                     .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                try
+                if (_context.Aborted)
                 {
-                    await _context.CloseAsync(cancellationToken).ConfigureAwait(false);
+                    break;
                 }
-                finally
-                {
-                    await _storage.RemoveConnection(_context);
-                }
-            }
-            catch (SocketCloseException)
-            {
-                await _storage.RemoveConnection(_context);
             }
             finally
             {

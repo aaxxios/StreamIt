@@ -6,7 +6,7 @@ public sealed class StreamItStorage
 
     private readonly StreamItGroupList _groups = new();
 
-    public IEnumerable<StreamItGroup> Groups => _groups.Groups;
+    public StreamItGroupList Groups => _groups;
 
     public StreamItGroup? Group(string groupName)
     {

@@ -20,11 +20,16 @@ public sealed class StreamItGroupList
     }
 
     /// <summary>
-    /// get the groups in the list
+    /// gets the group from the list
     /// </summary>
-    public IEnumerable<StreamItGroup> Groups => _groups.Values;
-
-
+    /// <param name="groupName">group name</param>
+    /// <returns></returns>
+    public StreamItGroup? Group(string groupName)
+    {
+        _groups.TryGetValue(groupName, out var group);
+        return group;
+    }
+    
     /// <summary>
     /// send a message to all groups
     /// </summary>
@@ -63,7 +68,8 @@ public sealed class StreamItGroupList
     {
         if (!_groups.TryGetValue(groupName, out var group))
             return;
-        group.TryRemove(connection, out _);
+        if(!group.TryRemove(connection, out _))
+            return;
         if (group.Count == 0)
             _groups.TryRemove(groupName, out _);
     }
