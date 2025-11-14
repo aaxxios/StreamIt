@@ -23,7 +23,7 @@ public static class ServiceExtension
     {
         var assembly = Assembly.GetEntryAssembly();
         ArgumentNullException.ThrowIfNull(assembly);
-        var type = typeof(StreamItRequestHandler);
+        var type = typeof(StreamItStream);
         foreach (var handler in assembly.GetTypes().Where(t => t.IsAssignableTo(type) && t != type))
         {
             services.AddScoped(handler);
@@ -38,7 +38,7 @@ public static class ServiceExtension
     }
 
     public static RouteHandlerBuilder MapStreamIt<T>(this WebApplication app, string path)
-        where T : StreamItRequestHandler
+        where T : StreamItStream
     {
         return app.MapGet(path, Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
         {
