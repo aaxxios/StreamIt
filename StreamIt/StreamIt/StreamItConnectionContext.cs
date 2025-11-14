@@ -112,12 +112,19 @@ public sealed class StreamItConnectionContext : IDisposable
         WebSocketReceiveResult reply;
         var read = 0;
         var remaining = options.Value.MaxMessageSize;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(options.Value.ReadMessageTimeout);
         do
         {
             if (Aborted)
                 throw new SocketCloseException();
-            reply = await connection.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cancellationToken)
+            reply = await connection.ReceiveAsync(new ArraySegment<byte>(buffer, read, remaining), cts.Token)
                 .ConfigureAwait(false);
+            if (cts.IsCancellationRequested)
+            {
+                readLock.Release();
+                throw new OperationCanceledException();
+            }
             read += reply.Count;
             remaining -= reply.Count;
         } while (!reply.EndOfMessage && remaining > 0);
@@ -146,7 +153,6 @@ public sealed class StreamItConnectionContext : IDisposable
         }
         finally
         {
-            readLock.Release();
             ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         }
     }
