@@ -4,15 +4,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-// ReSharper disable PossiblyMistakenUseOfCancellationToken
-
 namespace StreamIt;
 
-public abstract class StreamItRequestHandler
+public abstract class StreamItStream
 {
 #pragma warning disable CS8618
     private IOptions<StreamItOptions> _options { get; set; }
-    private ILogger<StreamItRequestHandler>? _logger { get; set; }
+    private ILogger<StreamItStream> _logger { get; set; }
     private StreamItStorage _storage { get; set; }
 
     private StreamItConnectionContext _context { get; set; }
@@ -22,6 +20,8 @@ public abstract class StreamItRequestHandler
     protected StreamItConnectionContext Context => _context;
 
     protected StreamItGroupList Groups => _storage.Groups;
+    
+    protected StreamItStorage Storage => _storage;
 
 
     internal async Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
@@ -36,18 +36,24 @@ public abstract class StreamItRequestHandler
         _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, context.RequestServices);
         _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
-        _logger = context.RequestServices.GetService<ILogger<StreamItRequestHandler>>();
-
+        _logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<StreamItStream>();
         await _storage.AddConnection(_context);
         await OnConnected(cancellationToken).ConfigureAwait(false);
         if (_context.Aborted)
         {
             await _context.CloseAsync(cancellationToken).ConfigureAwait(false);
             await _storage.RemoveConnection(_context);
-            _logger?.LogDebug("connection aborted: {C}", _context.ClientId);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("connection aborted: {C}", _context.ClientId);
+            }
         }
 
-        _logger?.LogDebug("finalising connection {C} and keeping alive", _context.ClientId);
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("finalising connection {C} and keeping alive", _context.ClientId);
+        }
+
         _context.FinalizeConnection();
         try
         {
@@ -68,13 +74,10 @@ public abstract class StreamItRequestHandler
         while (!cancellationToken.IsCancellationRequested)
         {
             var buffer = ArrayPool<byte>.Shared.Rent(_options.Value.MaxMessageSize);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(_options.Value.ReadMessageTimeout);
             try
             {
-                var read = await _context.ReceiveMessageAsync(buffer, cts.Token).ConfigureAwait(false);
-                await OnMessage(buffer.AsSpan(0, read), cancellationToken)
-                    .ConfigureAwait(false);
+                var read = await _context.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
+                await OnMessage(buffer.AsSpan(0, read), cancellationToken).ConfigureAwait(false);
                 if (_context.Aborted)
                 {
                     break;
@@ -84,7 +87,6 @@ public abstract class StreamItRequestHandler
             {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
-
             await Task.Delay(_options.Value.KeepAliveInterval, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -111,10 +113,10 @@ public abstract class StreamItRequestHandler
     /// <summary>
     /// called when a message is received from a client
     /// </summary>
-    /// <param name="message"></param>
+    /// <param name="raw"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    protected virtual Task OnMessage(ReadOnlySpan<byte> message, CancellationToken cancellationToken = default)
+    protected virtual Task OnMessage(ReadOnlySpan<byte> raw, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
     }
