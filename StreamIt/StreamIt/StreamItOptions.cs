@@ -18,4 +18,10 @@ public class StreamItOptions
     public int MaxMessageSize { get; set; } = 1024;
 
     public JsonSerializerOptions? SerializerOptions { get; set; }
+    
+    /// <summary>
+    /// if statistics should be collected for byte read/written in contexts
+    /// </summary>
+    public bool EnableStatistics { get; set; }
+    
 }
