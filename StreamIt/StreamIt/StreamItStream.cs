@@ -8,37 +8,30 @@ namespace StreamIt;
 
 public abstract class StreamItStream : IDisposable
 {
-#pragma warning disable CS8618
-    private IOptions<StreamItOptions> _options { get; set; }
-    private ILogger<StreamItStream> _logger { get; set; }
-    private StreamItStorage _storage { get; set; }
+    private IOptions<StreamItOptions>? _options { get; set; }
+    private ILogger<StreamItStream>? _logger { get; set; }
+    
+    private StreamItStorage? _storage { get; set; }
 
-    private StreamItConnectionContext _context { get; set; }
 
-#pragma warning restore CS8618
+    private StreamItConnectionContext? _context { get; set; }
 
-    protected StreamItConnectionContext Context => _context;
+    protected StreamItConnectionContext Context => _context ?? throw new InvalidOperationException("invalid stream state");
 
-    protected StreamItGroupList Groups => _storage.Groups;
+    protected StreamItGroupList Groups => _storage == null ? throw new InvalidOperationException("invalid stream state") : _storage.Groups;
 
-    protected StreamItStorage Storage => _storage;
+    protected StreamItStorage Storage => _storage ?? throw new InvalidOperationException("invalid stream state");
 
     internal Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
     {
-        if (!context.WebSockets.IsWebSocketRequest)
-        {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            return Task.CompletedTask;
-        }
-        var _tcs = new TaskCompletionSource();
-        HandleConnection(context, _tcs, cancellationToken).ConfigureAwait(false);
-        return _tcs.Task;
+        if (context.WebSockets.IsWebSocketRequest) return HandleConnectionInner(context, cancellationToken);
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return Task.CompletedTask;
     }
 
-    private async Task HandleConnection(HttpContext context, TaskCompletionSource taskCompletionSource,
+    private async Task HandleConnectionInner(HttpContext context,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.Register(() => taskCompletionSource.TrySetCanceled());
         using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
         _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, _options);
@@ -53,7 +46,6 @@ public abstract class StreamItStream : IDisposable
             {
                 _logger.LogDebug("connection aborted: {C}", _context.ClientId);
             }
-            taskCompletionSource.SetResult();
             return;
         }
 
@@ -72,7 +64,6 @@ public abstract class StreamItStream : IDisposable
             if (!cancellationToken.IsCancellationRequested)
             {
                 await Task.WhenAll(_storage.RemoveConnection(_context), OnDisconnected(cancellationToken));
-                taskCompletionSource.SetResult();
             }
         }
     }
@@ -81,10 +72,10 @@ public abstract class StreamItStream : IDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(_options.Value.MaxMessageSize);
+            var buffer = ArrayPool<byte>.Shared.Rent(_options!.Value.MaxMessageSize);
             try
             {
-                var read = await _context.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
+                var read = await _context!.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
                 await OnMessage(buffer.AsSpan(0, read), cancellationToken).ConfigureAwait(false);
                 if (_context.Aborted)
                 {
@@ -144,11 +135,11 @@ public abstract class StreamItStream : IDisposable
         {
             return;
         }
-
         if (disposing)
         {
             _context?.Dispose();
         }
+        
         disposed = true;
     }
 }

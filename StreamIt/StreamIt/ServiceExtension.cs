@@ -17,7 +17,7 @@ public static class ServiceExtension
     /// <param name="services"></param>
     public static void AddStreamIt(this IServiceCollection services)
     {
-        if (!_isInitialized)
+        if (_isInitialized)
             return;
         services.AddOptions<StreamItOptions>();
         services.AddSingleton<StreamItStorage>(_ => new StreamItStorage());
@@ -47,11 +47,11 @@ public static class ServiceExtension
     public static RouteHandlerBuilder MapStream<T>(this IEndpointRouteBuilder app, string path)
         where T : StreamItStream
     {
-        return app.MapGet(path, Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
+        return app.MapGet(path, async Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
         {
             using var scope = serviceProvider.CreateScope();
-            var stream = scope.ServiceProvider.GetRequiredService<T>();
-            return stream.HandleConnection(context, context.RequestAborted);
+            using var stream = scope.ServiceProvider.GetRequiredService<T>();
+            await stream.HandleConnection(context, context.RequestAborted);
         });
     }
 }
