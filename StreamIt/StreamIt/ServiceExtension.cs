@@ -32,9 +32,6 @@ public static class ServiceExtension
         var type = typeof(StreamItStream);
         foreach (var stream in assembly.GetTypes().Where(t => t.IsAssignableTo(type) && t != type && !t.IsAbstract))
         {
-            var routeAttribute = type.GetCustomAttribute<StreamRouteAttribute>();
-            if (routeAttribute == null)
-                continue;
             services.AddScoped(stream);
         }
     }
