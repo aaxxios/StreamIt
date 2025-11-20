@@ -43,6 +43,12 @@ public sealed class StreamItConnectionList
     {
         return _itConnectionContexts.TryRemove(context.ClientId, out removed);
     }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryRemove(Guid clientId, out StreamItConnectionContext? removed)
+    {
+        return _itConnectionContexts.TryRemove(clientId, out removed);
+    }
 
     /// <summary>
     /// add a connection to the list

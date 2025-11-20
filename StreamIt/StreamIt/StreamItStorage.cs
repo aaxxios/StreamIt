@@ -21,6 +21,17 @@ public sealed class StreamItStorage
         return ValueTask.CompletedTask;
     }
 
+    internal ValueTask UpdateClientIds(StreamItConnectionContext context, Guid oldClientId)
+    {
+        
+        if (!connections.TryRemove(oldClientId, out _))
+        {
+            throw new InvalidOperationException("Connection not found");
+        }
+        connections.Add(context);
+        return ValueTask.CompletedTask;
+    }
+
     internal Task RemoveConnection(StreamItConnectionContext context)
     {
         if (!connections.TryRemove(context, out _) || context.Groups.Count == 0)
