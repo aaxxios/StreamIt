@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace StreamIt;
 
-public abstract class StreamItStream
+public abstract class StreamItStream : IDisposable
 {
 #pragma warning disable CS8618
     private IOptions<StreamItOptions> _options { get; set; }
@@ -20,33 +20,41 @@ public abstract class StreamItStream
     protected StreamItConnectionContext Context => _context;
 
     protected StreamItGroupList Groups => _storage.Groups;
-    
+
     protected StreamItStorage Storage => _storage;
 
-
-    internal async Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
+    internal Task HandleConnection(HttpContext context, CancellationToken cancellationToken = default)
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            return;
+            return Task.CompletedTask;
         }
+        var _tcs = new TaskCompletionSource();
+        HandleConnection(context, _tcs, cancellationToken).ConfigureAwait(false);
+        return _tcs.Task;
+    }
 
+    private async Task HandleConnection(HttpContext context, TaskCompletionSource taskCompletionSource,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.Register(() => taskCompletionSource.TrySetCanceled());
         using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-        _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, context.RequestServices);
-        _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
+        _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, _options);
+        _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<StreamItStream>();
         await _storage.AddConnection(_context);
         await OnConnected(cancellationToken).ConfigureAwait(false);
         if (_context.Aborted)
         {
-            await _context.CloseAsync(cancellationToken).ConfigureAwait(false);
             await _storage.RemoveConnection(_context);
             if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("connection aborted: {C}", _context.ClientId);
             }
+            taskCompletionSource.SetResult();
+            return;
         }
 
         if (_logger.IsEnabled(LogLevel.Debug))
@@ -63,8 +71,8 @@ public abstract class StreamItStream
         {
             if (!cancellationToken.IsCancellationRequested)
             {
-                await _storage.RemoveConnection(_context);
-                await OnDisconnected(cancellationToken).ConfigureAwait(false);
+                await Task.WhenAll(_storage.RemoveConnection(_context), OnDisconnected(cancellationToken));
+                taskCompletionSource.SetResult();
             }
         }
     }
@@ -87,6 +95,7 @@ public abstract class StreamItStream
             {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
+
             await Task.Delay(_options.Value.KeepAliveInterval, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -119,5 +128,27 @@ public abstract class StreamItStream
     protected virtual Task OnMessage(ReadOnlySpan<byte> raw, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
+    }
+
+    protected bool disposed;
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            _context?.Dispose();
+        }
+        disposed = true;
     }
 }

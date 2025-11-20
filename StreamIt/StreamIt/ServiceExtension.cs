@@ -2,48 +2,59 @@ using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace StreamIt;
 
 public static class ServiceExtension
 {
+    private static bool _isInitialized;
+
     /// <summary>
     /// add services required by StreamIt
     /// </summary>
     /// <param name="services"></param>
     public static void AddStreamIt(this IServiceCollection services)
     {
+        if (!_isInitialized)
+            return;
         services.AddOptions<StreamItOptions>();
         services.AddSingleton<StreamItStorage>(_ => new StreamItStorage());
-        AddDiscoveredHandlers(services);
+        DiscoverStreams(services);
+        _isInitialized = true;
     }
 
-    private static void AddDiscoveredHandlers(this IServiceCollection services)
+    private static void DiscoverStreams(this IServiceCollection services)
     {
         var assembly = Assembly.GetEntryAssembly();
         ArgumentNullException.ThrowIfNull(assembly);
         var type = typeof(StreamItStream);
-        foreach (var handler in assembly.GetTypes().Where(t => t.IsAssignableTo(type) && t != type))
+        foreach (var stream in assembly.GetTypes().Where(t => t.IsAssignableTo(type) && t != type && !t.IsAbstract))
         {
-            services.AddScoped(handler);
+            var routeAttribute = type.GetCustomAttribute<StreamRouteAttribute>();
+            if (routeAttribute == null)
+                continue;
+            services.AddScoped(stream);
         }
     }
-    
-    public static WebApplication UseStreamIt(this WebApplication app)
+
+    public static IApplicationBuilder UseStreamIt(this IApplicationBuilder app)
     {
-        app.Services.GetRequiredService<StreamItStorage>();
+        if (!_isInitialized)
+            throw new InvalidOperationException("StreamIt service not configured");
         app.UseWebSockets();
         return app;
     }
 
-    public static RouteHandlerBuilder MapStreamIt<T>(this WebApplication app, string path)
+    public static RouteHandlerBuilder MapStream<T>(this IEndpointRouteBuilder app, string path)
         where T : StreamItStream
     {
         return app.MapGet(path, Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
         {
-            var handler = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<T>();
-            return handler.HandleConnection(context, context.RequestAborted);
+            using var scope = serviceProvider.CreateScope();
+            var stream = scope.ServiceProvider.GetRequiredService<T>();
+            return stream.HandleConnection(context, context.RequestAborted);
         });
     }
 }
