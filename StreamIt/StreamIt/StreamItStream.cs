@@ -10,15 +10,17 @@ public abstract class StreamItStream : IDisposable
 {
     private IOptions<StreamItOptions>? _options { get; set; }
     private ILogger<StreamItStream>? _logger { get; set; }
-    
+
     private StreamItStorage? _storage { get; set; }
 
 
     private StreamItConnectionContext? _context { get; set; }
 
-    protected StreamItConnectionContext Context => _context ?? throw new InvalidOperationException("invalid stream state");
+    protected StreamItConnectionContext Context =>
+        _context ?? throw new InvalidOperationException("invalid stream state");
 
-    protected StreamItGroupList Groups => _storage == null ? throw new InvalidOperationException("invalid stream state") : _storage.Groups;
+    protected StreamItGroupList Groups =>
+        _storage == null ? throw new InvalidOperationException("invalid stream state") : _storage.Groups;
 
     protected StreamItStorage Storage => _storage ?? throw new InvalidOperationException("invalid stream state");
 
@@ -34,12 +36,12 @@ public abstract class StreamItStream : IDisposable
     {
         using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
-        var clientId = Guid.NewGuid();
-        _context = new StreamItConnectionContext(clientId, websocket, _options);
+        _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, _options);
         _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<StreamItStream>();
         await _storage.AddConnection(_context);
         await OnConnected(cancellationToken).ConfigureAwait(false);
+        if (cancellationToken.IsCancellationRequested) return;
         if (_context.Aborted)
         {
             await _storage.RemoveConnection(_context);
@@ -47,12 +49,8 @@ public abstract class StreamItStream : IDisposable
             {
                 _logger.LogDebug("connection aborted: {C}", _context.ClientId);
             }
+
             return;
-        }
-        if (_context.ClientId != clientId)
-        {
-            // update the client if modified
-            await _storage.UpdateClientId(_context, clientId);
         }
 
         if (_logger.IsEnabled(LogLevel.Debug))
@@ -141,11 +139,12 @@ public abstract class StreamItStream : IDisposable
         {
             return;
         }
+
         if (disposing)
         {
             _context?.Dispose();
         }
-        
+
         disposed = true;
     }
 }

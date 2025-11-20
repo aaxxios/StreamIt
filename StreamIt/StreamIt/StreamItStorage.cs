@@ -21,15 +21,19 @@ public sealed class StreamItStorage
         return ValueTask.CompletedTask;
     }
 
-    internal ValueTask UpdateClientId(StreamItConnectionContext context, Guid oldClientId)
+    /// <summary>
+    /// should be called when the context id changes
+    /// </summary>
+    /// <param name="context"></param>
+    /// <param name="oldClientId"></param>
+    public async ValueTask UpdateClientId(StreamItConnectionContext context, Guid oldClientId)
     {
-        
         if (!connections.TryRemove(oldClientId, out _))
-        {
-            throw new InvalidOperationException("Connection not found");
-        }
+            throw new InvalidOperationException($"invalid old client id: {oldClientId}");
+        if(context.ClientId == oldClientId)
+            return;
+        await RemoveConnection(context); 
         connections.Add(context);
-        return ValueTask.CompletedTask;
     }
 
     internal Task RemoveConnection(StreamItConnectionContext context)
@@ -62,7 +66,12 @@ public sealed class StreamItStorage
     /// </summary>
     /// <param name="groups"></param>
     /// <param name="connectionContext"></param>
-    public async Task AddToGroups(IEnumerable<string> groups, StreamItConnectionContext connectionContext)
+    public Task AddToGroups(IEnumerable<string> groups, StreamItConnectionContext connectionContext)
+    {
+        return AddToGroups(groups.ToList(), connectionContext);
+    }
+    
+    public async Task AddToGroups(List<string> groups, StreamItConnectionContext connectionContext)
     {
         if (!connections.TryGetValue(connectionContext, out _))
             return;
