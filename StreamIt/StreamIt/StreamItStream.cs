@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Net.WebSockets;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -67,8 +68,27 @@ public abstract class StreamItStream : IDisposable
         {
             if (!cancellationToken.IsCancellationRequested)
             {
-                await Task.WhenAll(_storage.RemoveConnection(_context), OnDisconnected(cancellationToken));
+                await _storage.RemoveConnection(_context);
             }
+
+            if (!context.RequestAborted.IsCancellationRequested)
+            {
+                await Task.WhenAll(CloseConnection(websocket, context.RequestAborted),
+                    OnDisconnected(context.RequestAborted));
+            }
+        }
+    }
+
+    private static async Task CloseConnection(WebSocket webSocket, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, cancellationToken);
+        }
+        catch (WebSocketException e) when (e.WebSocketErrorCode is WebSocketError.InvalidState
+                                               or WebSocketError.ConnectionClosedPrematurely)
+        {
+            // ignore if connection is in invalid state
         }
     }
 

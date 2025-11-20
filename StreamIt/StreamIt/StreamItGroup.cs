@@ -22,12 +22,6 @@ public sealed class StreamItGroup
     private readonly StreamItConnectionList _connectionList = new();
 
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
-    {
-        return _connectionList.TryGetValue(context, out value);
-    }
-
     /// <summary>
     /// number of connections in the group
     /// </summary>
