@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace StreamIt;
 
@@ -47,11 +48,11 @@ public static class ServiceExtension
     public static RouteHandlerBuilder MapStream<T>(this IEndpointRouteBuilder app, string path)
         where T : StreamItStream
     {
-        return app.MapGet(path, async Task (HttpContext context, [FromServices] IServiceScopeFactory serviceProvider) =>
+        return app.MapGet(path, async Task (HttpContext context, [FromServices] IServiceProvider serviceProvider, IHostApplicationLifetime lifetime) =>
         {
-            using var scope = serviceProvider.CreateScope();
+            await using var scope = serviceProvider.CreateAsyncScope();
             using var stream = scope.ServiceProvider.GetRequiredService<T>();
-            await stream.HandleConnection(context, context.RequestAborted);
+            await stream.HandleConnection(context, lifetime.ApplicationStopping);
         });
     }
 }

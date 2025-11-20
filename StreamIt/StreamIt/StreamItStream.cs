@@ -34,7 +34,8 @@ public abstract class StreamItStream : IDisposable
     {
         using var websocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
         _options = context.RequestServices.GetRequiredService<IOptions<StreamItOptions>>();
-        _context = new StreamItConnectionContext(Guid.NewGuid(), websocket, _options);
+        var clientId = Guid.NewGuid();
+        _context = new StreamItConnectionContext(clientId, websocket, _options);
         _storage = context.RequestServices.GetRequiredService<StreamItStorage>();
         _logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger<StreamItStream>();
         await _storage.AddConnection(_context);
@@ -48,6 +49,11 @@ public abstract class StreamItStream : IDisposable
             }
             return;
         }
+        if (_context.ClientId != clientId)
+        {
+            // update the client if modified
+            await _storage.UpdateClientId(_context, clientId);
+        }
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -57,7 +63,7 @@ public abstract class StreamItStream : IDisposable
         _context.FinalizeConnection();
         try
         {
-            await KeepAlive(cancellationToken).ConfigureAwait(false);
+            await KeepAlive(context.RequestAborted).ConfigureAwait(false);
         }
         finally
         {

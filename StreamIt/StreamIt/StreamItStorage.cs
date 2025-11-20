@@ -21,7 +21,7 @@ public sealed class StreamItStorage
         return ValueTask.CompletedTask;
     }
 
-    internal ValueTask UpdateClientIds(StreamItConnectionContext context, Guid oldClientId)
+    internal ValueTask UpdateClientId(StreamItConnectionContext context, Guid oldClientId)
     {
         
         if (!connections.TryRemove(oldClientId, out _))
