@@ -1,0 +1,1 @@
+StreamIT facilitates interaction with WebSocket streams in ASP.NET Core.
