@@ -49,12 +49,15 @@ public class SampleStreamItStream : StreamItStream
     protected override async Task OnConnected(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("client connected: {Id}", Context.ClientId);
+        Context.SetClient(Guid.NewGuid());
+        
         var message = await Context.ReceiveMessageAsync<StreamMessage>(cancellationToken).ConfigureAwait(false);
         if (message.Type is not StreamMessageType.Subscription)
         {
             await Context.SendAsync("invalid initialization message"u8.ToArray(), cancellationToken)
                 .ConfigureAwait(false);
             Context.Abort();
+            return;
         }
 
         await HandleMessage(message, cancellationToken).ConfigureAwait(false);

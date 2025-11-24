@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 
 namespace Sample;
 
@@ -35,12 +36,24 @@ public class BackgroundClient : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await client.SendAsync("hello world"u8.ToArray(), WebSocketMessageType.Text, true, stoppingToken)
-                .ConfigureAwait(false);
-            var buffer = new byte[1024];
-            var response = await client.ReceiveAsync(buffer, stoppingToken).ConfigureAwait(false);
-            _logger.LogInformation("message from server: {M}", Encoding.UTF8.GetString(buffer, 0, response.Count));
-            await Task.Delay(1000, stoppingToken);
+            var message = JsonSerializer.SerializeToUtf8Bytes(new StreamMessage()
+            {
+                Type = StreamMessageType.Ping
+            });
+            try
+            {
+                await client.SendAsync(message, WebSocketMessageType.Text, true, stoppingToken)
+                    .ConfigureAwait(false);
+                _logger.LogInformation("sent ping to server");
+                var buffer = new byte[1024];
+                var response = await client.ReceiveAsync(buffer, stoppingToken).ConfigureAwait(false);
+                _logger.LogInformation("message from server: {M}", Encoding.UTF8.GetString(buffer, 0, response.Count));
+                await Task.Delay(1000, stoppingToken);
+            }
+            catch (Exception)
+            {
+                break;
+            }
         }
     }
 }

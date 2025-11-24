@@ -9,5 +9,5 @@ var app = builder.Build();
 
 app.UseHttpsRedirection();
 app.UseStreamIt();
-app.MapStreamIt<SampleStreamItStream>("streamit");
+app.MapStream<SampleStreamItStream>("streamit");
 app.Run();
