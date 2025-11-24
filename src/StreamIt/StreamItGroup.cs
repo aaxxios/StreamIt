@@ -27,6 +27,8 @@ public sealed class StreamItGroup
     /// </summary>
     public int Count => _connectionList.Count;
     
+    public bool IsEmpty => _connectionList.IsEmpty;
+    
     public StreamItConnectionContext? this[Guid clientId]
     {
         get

@@ -70,7 +70,7 @@ public sealed class StreamItGroupList
             return;
         if(!group.TryRemove(connection, out _))
             return;
-        if (group.Count == 0)
+        if (group.IsEmpty)
             _groups.TryRemove(groupName, out _);
     }
 

@@ -50,18 +50,14 @@ public sealed class StreamItConnectionContext : IDisposable
     }
 
     public Guid ClientId => _clientId;
-
-    private bool Finalized { get; set; }
-
+    
     /// <summary>
     /// call once to reset the client id before the connection is finalized
     /// </summary>
     /// <param name="guid"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public void SetClient(Guid guid)
+    internal void SetClient(Guid guid)
     {
-        if (Finalized)
-            throw new InvalidOperationException("connection is finalized");
         _clientId = guid;
     }
 
@@ -96,7 +92,7 @@ public sealed class StreamItConnectionContext : IDisposable
         UpdateBytesWritten(message.Length);
         writeLock.Release();
     }
-    
+
 
     /// <summary>
     /// abort the context 
@@ -113,12 +109,7 @@ public sealed class StreamItConnectionContext : IDisposable
         if (Aborted)
             throw new ContextAbortedException();
     }
-    public void FinalizeConnection()
-    {
-        if (Finalized)
-            throw new InvalidOperationException("connection is already finalized");
-        Finalized = true;
-    }
+    
 
     /// <summary>
     /// reads raw bytes from connection

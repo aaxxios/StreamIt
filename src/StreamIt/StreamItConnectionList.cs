@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -10,9 +11,7 @@ namespace StreamIt;
 public sealed class StreamItConnectionList
 {
     private readonly ConcurrentDictionary<Guid, StreamItConnectionContext> _itConnectionContexts = new();
-
-    public ICollection<StreamItConnectionContext> Connections => _itConnectionContexts.Values;
-
+    
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValue(StreamItConnectionContext context, out StreamItConnectionContext? value)
     {
@@ -25,6 +24,8 @@ public sealed class StreamItConnectionList
     /// number of connections in the list
     /// </summary>
     public int Count => _itConnectionContexts.Count;
+    
+    public bool IsEmpty => _itConnectionContexts.IsEmpty;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetValue(Guid id, out StreamItConnectionContext? value)
@@ -39,13 +40,13 @@ public sealed class StreamItConnectionList
     /// <param name="removed"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, out StreamItConnectionContext? removed)
+    public bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)]out StreamItConnectionContext? removed)
     {
         return _itConnectionContexts.TryRemove(context.ClientId, out removed);
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(Guid clientId, out StreamItConnectionContext? removed)
+    public bool TryRemove(Guid clientId, [NotNullWhen(true)]out StreamItConnectionContext? removed)
     {
         return _itConnectionContexts.TryRemove(clientId, out removed);
     }

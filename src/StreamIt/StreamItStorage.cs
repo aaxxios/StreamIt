@@ -13,7 +13,7 @@ public sealed class StreamItStorage
         return _groups[groupName];
     }
 
-    public IEnumerable<StreamItConnectionContext> Connections => connections.Connections;
+    public int ConnectionCount => connections.Count;
 
     internal ValueTask AddConnection(StreamItConnectionContext context)
     {
@@ -22,17 +22,14 @@ public sealed class StreamItStorage
     }
 
     /// <summary>
-    /// should be called when the context id changes
+    /// should be called when the context id changes. This will remove context from all existing groups 
     /// </summary>
-    /// <param name="context"></param>
-    /// <param name="oldClientId"></param>
-    public async ValueTask UpdateClientId(StreamItConnectionContext context, Guid oldClientId)
+    public async ValueTask UpdateClientId(StreamItConnectionContext context, Guid newClientId)
     {
-        if (!connections.TryRemove(oldClientId, out _))
-            throw new InvalidOperationException($"invalid old client id: {oldClientId}");
-        if(context.ClientId == oldClientId)
-            return;
-        await RemoveConnection(context); 
+        if (!connections.TryRemove(context, out var ctx))
+            throw new InvalidOperationException("unknown connection");
+        await RemoveFromGroupsNoCheck(ctx.Groups, ctx);
+        context.SetClient(newClientId);
         connections.Add(context);
     }
 
@@ -42,6 +39,7 @@ public sealed class StreamItStorage
             return Task.CompletedTask;
         return RemoveFromGroupsNoCheck(context.Groups, context);
     }
+
 
     /// <summary>
     /// add the connection to the group
@@ -70,7 +68,7 @@ public sealed class StreamItStorage
     {
         return AddToGroups(groups.ToList(), connectionContext);
     }
-    
+
     public async Task AddToGroups(List<string> groups, StreamItConnectionContext connectionContext)
     {
         if (!connections.TryGetValue(connectionContext, out _))

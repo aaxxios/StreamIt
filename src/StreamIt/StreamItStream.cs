@@ -59,7 +59,6 @@ public abstract class StreamItStream : IDisposable
             _logger.LogDebug("finalising connection {C} and keeping alive", _context.ClientId);
         }
 
-        _context.FinalizeConnection();
         try
         {
             await KeepAlive(context.RequestAborted).ConfigureAwait(false);
@@ -100,7 +99,7 @@ public abstract class StreamItStream : IDisposable
             try
             {
                 var read = await _context!.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
-                await OnMessage(buffer.AsSpan(0, read), cancellationToken).ConfigureAwait(false);
+                await OnMessage(new ArraySegment<byte>(buffer, 0, read), cancellationToken).ConfigureAwait(false);
                 if (_context.Aborted)
                 {
                     break;
@@ -140,7 +139,7 @@ public abstract class StreamItStream : IDisposable
     /// <param name="raw"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    protected virtual Task OnMessage(ReadOnlySpan<byte> raw, CancellationToken cancellationToken = default)
+    protected virtual Task OnMessage(ArraySegment<byte> raw, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
     }
