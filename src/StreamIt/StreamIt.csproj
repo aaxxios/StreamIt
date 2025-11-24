@@ -5,11 +5,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>StreamIt</PackageId>
         <Authors>aaxxios</Authors>
         <Version>1.0.27</Version>
+        <PackageTags>websocket</PackageTags>
         <PackageReleaseNotes>add serialiser options support</PackageReleaseNotes>
     </PropertyGroup>
 
