@@ -10,22 +10,17 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        dotnet: [ '6.0.x', '8.0.x', '10.0.x' ]
-
-    name: Build & Test on .NET ${{ matrix.dotnet }}
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET SDK ${{ matrix.dotnet }}
+    - name: Setup .NET SDK 
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet }}
-
+        dotnet-version: | 
+          10.0.x
+          8.0.x
+          6.0.x
     - name: Restore
       run: dotnet restore
 
