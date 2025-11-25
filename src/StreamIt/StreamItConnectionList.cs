@@ -26,12 +26,7 @@ public sealed class StreamItConnectionList
     public int Count => _itConnectionContexts.Count;
     
     public bool IsEmpty => _itConnectionContexts.IsEmpty;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryGetValue(Guid id, out StreamItConnectionContext? value)
-    {
-        return _itConnectionContexts.TryGetValue(id, out value);
-    }
+    
 
     /// <summary>
     /// try to remove a connection from the list
@@ -40,22 +35,16 @@ public sealed class StreamItConnectionList
     /// <param name="removed"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)]out StreamItConnectionContext? removed)
+    internal bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)]out StreamItConnectionContext? removed)
     {
         return _itConnectionContexts.TryRemove(context.ClientId, out removed);
     }
     
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryRemove(Guid clientId, [NotNullWhen(true)]out StreamItConnectionContext? removed)
-    {
-        return _itConnectionContexts.TryRemove(clientId, out removed);
-    }
-
     /// <summary>
     /// add a connection to the list
     /// </summary>
     /// <param name="connection"></param>
-    public void Add(StreamItConnectionContext connection)
+    internal void Add(StreamItConnectionContext connection)
     {
         _itConnectionContexts.AddOrUpdate(connection.ClientId, connection, (_, _) => connection);
     }
@@ -75,7 +64,7 @@ public sealed class StreamItConnectionList
     }
 
     /// <summary>
-    /// send message to all connections in the list
+    /// send a message to all connections in the list
     /// </summary>
     /// <param name="message"></param>
     /// <param name="options"></param>

@@ -26,25 +26,22 @@ public sealed class StreamItGroup
     /// number of connections in the group
     /// </summary>
     public int Count => _connectionList.Count;
-    
-    public bool IsEmpty => _connectionList.IsEmpty;
-    
-    public StreamItConnectionContext? this[Guid clientId]
-    {
-        get
-        {
-            _connectionList.TryGetValue(clientId, out var value);
-            return value;
-        }
-    }
 
+    public bool IsEmpty => _connectionList.IsEmpty;
+
+    /// <summary>
+    /// check if a connection is a member of the group
+    /// </summary>
+    /// <param name="context"></param>
+    /// <returns></returns>
     public bool IsMember(StreamItConnectionContext context)
     {
         return _connectionList.Contains(context);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal bool TryRemove(StreamItConnectionContext context, [NotNullWhen(true)] out StreamItConnectionContext? removed)
+    internal bool TryRemove(StreamItConnectionContext context,
+        [NotNullWhen(true)] out StreamItConnectionContext? removed)
     {
         return _connectionList.TryRemove(context, out removed);
     }
