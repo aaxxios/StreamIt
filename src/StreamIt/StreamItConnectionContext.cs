@@ -50,7 +50,7 @@ public sealed class StreamItConnectionContext : IDisposable
     }
 
     public Guid ClientId => _clientId;
-    
+
     /// <summary>
     /// call once to reset the client id before the connection is finalized
     /// </summary>
@@ -93,6 +93,26 @@ public sealed class StreamItConnectionContext : IDisposable
         writeLock.Release();
     }
 
+    /// <summary>
+    /// send a message to this connection
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="cancellationToken"></param>
+    public async Task SendAsync(ArraySegment<byte> message, CancellationToken cancellationToken = default)
+    {
+        ThrowIfAborted();
+        await writeLock.WaitAsync(CancellationToken.None);
+        await connection.SendAsync(message, WebSocketMessageType.Binary, true, cancellationToken).ConfigureAwait(false);
+        UpdateBytesWritten(message.Count);
+        writeLock.Release();
+    }
+
+    public Task SendAsync<T>(T message, CancellationToken cancellationToken = default)
+    {
+        ThrowIfAborted();
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(message, options: _options.Value.SerializerOptions);
+        return SendAsync(bytes, cancellationToken);
+    }
 
     /// <summary>
     /// abort the context 
@@ -109,7 +129,7 @@ public sealed class StreamItConnectionContext : IDisposable
         if (Aborted)
             throw new ContextAbortedException();
     }
-    
+
 
     /// <summary>
     /// reads raw bytes from connection
