@@ -139,7 +139,8 @@ public sealed class StreamItConnectionContext : IDisposable
     /// <returns></returns>
     /// <exception cref="ContextAbortedException"></exception>
     /// <exception cref="MessageTooLargeException"></exception>
-    private async Task<int> ReadRawBytesAsync(byte[] buffer, CancellationToken cancellationToken = default)
+    private async Task<ReceivedMessageInfo> ReadRawBytesAsync(byte[] buffer,
+        CancellationToken cancellationToken = default)
     {
         await readLock.WaitAsync(CancellationToken.None);
         WebSocketReceiveResult reply;
@@ -166,10 +167,10 @@ public sealed class StreamItConnectionContext : IDisposable
         readLock.Release();
         if (read == _options.Value.MaxMessageSize && !reply.EndOfMessage)
             throw new MessageTooLargeException(_options.Value.MaxMessageSize, read);
-        if (reply.MessageType != WebSocketMessageType.Close)
-            return read;
-        Aborted = true;
-        throw new ContextAbortedException();
+        return new ReceivedMessageInfo()
+        {
+            Length = read, MessageType = reply.MessageType
+        };
     }
 
     /// <summary>
@@ -177,14 +178,17 @@ public sealed class StreamItConnectionContext : IDisposable
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public async Task<T> ReceiveMessageAsync<T>(CancellationToken cancellationToken = default)
+    public async Task<T?> ReceiveMessageAsync<T>(CancellationToken cancellationToken = default)
     {
         ThrowIfAborted();
         var buffer = ArrayPool<byte>.Shared.Rent(_options.Value.MaxMessageSize);
         try
         {
-            var read = await ReadRawBytesAsync(buffer, cancellationToken).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, read), options: _options.Value.SerializerOptions)!;
+            var receivedMessageInfo = await ReadRawBytesAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (receivedMessageInfo.MessageType is WebSocketMessageType.Close)
+                return default;
+            return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, receivedMessageInfo.Length),
+                options: _options.Value.SerializerOptions)!;
         }
         finally
         {
@@ -198,7 +202,7 @@ public sealed class StreamItConnectionContext : IDisposable
     /// <param name="buffer">destination to read message into</param>
     /// <param name="cancellationToken"></param>
     /// <returns>number of bytes read</returns>
-    public Task<int> ReceiveMessageAsync(byte[] buffer, CancellationToken cancellationToken = default)
+    public Task<ReceivedMessageInfo> ReceiveMessageAsync(byte[] buffer, CancellationToken cancellationToken = default)
     {
         ThrowIfAborted();
         return ReadRawBytesAsync(buffer, cancellationToken);

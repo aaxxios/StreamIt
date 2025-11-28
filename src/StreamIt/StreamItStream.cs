@@ -54,26 +54,21 @@ public abstract class StreamItStream : IDisposable
             return;
         }
 
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            _logger.LogDebug("finalising connection {C} and keeping alive", _context.ClientId);
-        }
-
         try
         {
             await KeepAlive(context.RequestAborted).ConfigureAwait(false);
         }
+
         finally
         {
             if (!cancellationToken.IsCancellationRequested)
             {
                 await _storage.RemoveConnection(_context);
-            }
-
-            if (!context.RequestAborted.IsCancellationRequested)
-            {
-                await Task.WhenAll(CloseConnection(websocket, context.RequestAborted),
-                    OnDisconnected(context.RequestAborted));
+                if (!context.RequestAborted.IsCancellationRequested)
+                {
+                    await Task.WhenAll(CloseConnection(websocket, context.RequestAborted),
+                        OnDisconnected(context.RequestAborted));
+                }
             }
         }
     }
@@ -98,8 +93,19 @@ public abstract class StreamItStream : IDisposable
             var buffer = ArrayPool<byte>.Shared.Rent(_options!.Value.MaxMessageSize);
             try
             {
-                var read = await _context!.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
-                await OnMessage(new ArraySegment<byte>(buffer, 0, read), cancellationToken).ConfigureAwait(false);
+                var messageInfo = await _context!.ReceiveMessageAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (messageInfo.MessageType is WebSocketMessageType.Close)
+                {
+                    if (_logger!.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("connection closed by client: {C}", _context.ClientId);
+                    }
+
+                    break;
+                }
+
+                await OnMessage(new ArraySegment<byte>(buffer, 0, messageInfo.Length), cancellationToken)
+                    .ConfigureAwait(false);
                 if (_context.Aborted)
                 {
                     break;
