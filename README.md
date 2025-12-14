@@ -4,8 +4,9 @@ A lightweight .NET WebSocket library for building real-time
 streaming applications with ASP.NET Core.
 
 ## Quick Start
-
-### 1. Create a Stream
+### 1. Install StreamIt
+dotnet add package StreamIt
+### 2. Create a Stream
 
 Inherit from `StreamItStream` and override the lifecycle methods:
 
@@ -36,7 +37,7 @@ public class EchoStream : StreamItStream
 }
 ```
 
-### 2. Configure Your Application
+### 3. Configure Your Application
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
@@ -61,9 +62,7 @@ app.Run();
 ```
 
 ## Groups
-
-Organize connections into groups for broadcast messaging:
-
+StreamIt allows you to organize connections into groups for broadcast messaging.
 ```csharp
 // define a message type for susbcriptions
 public class SubscriptionMessage
